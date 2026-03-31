@@ -156,77 +156,99 @@ export const getInvoiceById = async (req, res) => {
 
 export const createInvoice = async (req, res) => {
   try {
-    const { error, value } = invoiceSchema.validate(req.body);
+    const { 
+      patient_id,           // ← NEW!
+      recipient_name,       // ← NEW!
+      recipient_email,      // ← NEW!
+      recipient_phone,      // ← NEW!
+      invoice_date, 
+      due_date, 
+      status, 
+      subtotal, 
+      tax_percent, 
+      discount_percent, 
+      payment_terms, 
+      notes 
+    } = req.body;
+
+    console.log('📝 Creating invoice for:', recipient_name);
+
+    // Validate
+    const schema = Joi.object({
+      patient_id: Joi.number().required(),
+      recipient_name: Joi.string().required(),
+      recipient_email: Joi.string().email().required(),
+      recipient_phone: Joi.string().optional(),
+      invoice_date: Joi.date().required(),
+      due_date: Joi.date().required(),
+      status: Joi.string().default('draft'),
+      subtotal: Joi.number().min(0).required(),
+      tax_percent: Joi.number().min(0),
+      discount_percent: Joi.number().min(0),
+      payment_terms: Joi.string(),
+      notes: Joi.string(),
+    });
+
+    const { error } = schema.validate(req.body);
     if (error) {
-      console.log('❌ Validation error:', error.message);
       return res.status(400).json({ error: error.message });
     }
 
-    console.log('➕ Creating invoice...');
+    // Calculate totals
+    const tax_amount = (subtotal * (tax_percent || 0)) / 100;
+    const discount_amount = (subtotal * (discount_percent || 0)) / 100;
+    const total_amount = subtotal + tax_amount - discount_amount;
 
-    // Get next invoice number
-    const settingsResult = await query('SELECT next_invoice_number, invoice_prefix FROM billing_settings LIMIT 1');
-    const invoicePrefix = settingsResult.rows[0]?.invoice_prefix || 'INV-';
-    const nextNumber = settingsResult.rows[0]?.next_invoice_number || 1001;
-    const invoiceNumber = `${invoicePrefix}${nextNumber}`;
-
-    const {
-      patient_id,
-      consultation_id,
-      doctor_id,
-      invoice_date,
-      due_date,
-      subtotal,
-      tax_percentage,
-      tax_amount,
-      discount_percentage,
-      discount_amount,
-      total_amount,
-      status,
-      notes,
-      payment_terms,
-    } = value;
-
+    // Create invoice
     const result = await query(
       `INSERT INTO invoices (
-        patient_id, consultation_id, doctor_id, invoice_number,
-        invoice_date, due_date, subtotal, tax_percentage, tax_amount,
-        discount_percentage, discount_amount, total_amount, status,
-        amount_due, notes, payment_terms, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        patient_id, 
+        recipient_name, 
+        recipient_email, 
+        recipient_phone,
+        invoice_date, 
+        due_date, 
+        status, 
+        subtotal, 
+        tax_percent, 
+        tax_amount,
+        discount_percent, 
+        discount_amount,
+        total_amount, 
+        payment_terms, 
+        notes, 
+        created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         patient_id,
-        consultation_id || null,
-        doctor_id || null,
-        invoiceNumber,
+        recipient_name,
+        recipient_email,
+        recipient_phone,
         invoice_date,
-        due_date || null,
+        due_date,
+        status,
         subtotal,
-        tax_percentage || 0,
-        tax_amount || 0,
-        discount_percentage || 0,
-        discount_amount || 0,
+        tax_percent || 0,
+        tax_amount,
+        discount_percent || 0,
+        discount_amount,
         total_amount,
-        status || 'Draft',
-        total_amount,
-        notes || null,
         payment_terms || null,
-        req.user.user_id,
+        notes || null,
+        req.user.user_id
       ]
     );
 
-    // Update next invoice number
-    await query('UPDATE billing_settings SET next_invoice_number = next_invoice_number + 1');
-
-    console.log(`✅ Invoice created: ${invoiceNumber}`);
+    console.log('✅ Invoice created:', result.lastID);
 
     res.status(201).json({
       message: 'Invoice created successfully',
       invoice_id: result.lastID,
-      invoice_number: invoiceNumber,
+      total_amount: total_amount
     });
+
   } catch (error) {
-    console.error('❌ Error creating invoice:', error);
+    console.error('❌ Create invoice error:', error);
     res.status(500).json({ error: 'Failed to create invoice' });
   }
 };

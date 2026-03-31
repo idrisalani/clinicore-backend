@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS invoices (
   
   -- Foreign Keys
   patient_id INTEGER NOT NULL,
+  
+  -- ✅ NEW: Recipient Information Fields (Added 2026-03-31)
+  -- These fields ensure invoices have complete recipient information
+  recipient_name TEXT NOT NULL,    -- Name of invoice recipient (patient/guardian)
+  recipient_email TEXT NOT NULL,   -- Email for sending invoice
+  recipient_phone TEXT,            -- Phone for follow-up
+  -- ✅ END NEW
+  
   consultation_id INTEGER,
   doctor_id INTEGER,
   
@@ -253,6 +261,8 @@ INSERT INTO billing_settings (
    - Links to patient, consultation, doctor
    - Unique invoice_number for reference
    - Automatic invoice_date and due_date calculation
+   - ✅ NEW: Recipient information fields (recipient_name, recipient_email, recipient_phone)
+     These ensure every invoice has complete recipient details for professional invoicing
    - Status tracking: Draft → Issued → Sent → Paid/Partially Paid
    - Supports discounts and taxes
    - Track amount_paid vs amount_due
@@ -301,10 +311,16 @@ INSERT INTO billing_settings (
    - Multiple payments can be made per invoice
    - Receipts provide payment proof
    - Statistics can be calculated per doctor, patient, period
+   - ✅ Recipient information enables professional invoice delivery
 
 10. Financial Reporting:
     - Daily, monthly, yearly revenue
     - Outstanding receivables
     - Payment collection rate
     - Service-wise revenue breakdown
+
+11. ✅ UPDATES (2026-03-31):
+    - Added recipient_name, recipient_email, recipient_phone to invoices table
+    - These fields are now REQUIRED for professional invoicing
+    - Enables proper invoice delivery to customers
 */
