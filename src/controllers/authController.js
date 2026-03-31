@@ -61,7 +61,7 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    // Accept BOTH username and email
+    // Accept BOTH username and email ✅
     const { username, email, password } = req.body;
 
     console.log('🔐 Login attempt:', username || email);
@@ -76,7 +76,7 @@ export const login = async (req, res) => {
       return res.status(400).json({ error: 'Username or email required' });
     }
 
-    // Find user by username OR email
+    // Find user by username OR email ✅
     let result;
     if (username) {
       result = await query(
