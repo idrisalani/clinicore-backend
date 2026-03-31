@@ -61,37 +61,51 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // Accept BOTH username and email
+    const { username, email, password } = req.body;
 
-    console.log('🔐 Login attempt:', email);
+    console.log('🔐 Login attempt:', username || email);
 
-    if (!email || !password) {
-      console.log('❌ Missing email or password');
-      return res.status(400).json({ error: 'Email and password required' });
+    if (!password) {
+      console.log('❌ Missing password');
+      return res.status(400).json({ error: 'Password required' });
     }
 
-    // Find user
-    const result = await query(
-      'SELECT user_id, username, email, password_hash, role, is_active FROM users WHERE email = ?',
-      [email]
-    );
+    if (!username && !email) {
+      console.log('❌ Missing username or email');
+      return res.status(400).json({ error: 'Username or email required' });
+    }
+
+    // Find user by username OR email
+    let result;
+    if (username) {
+      result = await query(
+        'SELECT user_id, username, email, password_hash, role, is_active FROM users WHERE username = ?',
+        [username]
+      );
+    } else {
+      result = await query(
+        'SELECT user_id, username, email, password_hash, role, is_active FROM users WHERE email = ?',
+        [email]
+      );
+    }
 
     if (!result.rows || result.rows.length === 0) {
-      console.log('❌ User not found:', email);
+      console.log('❌ User not found:', username || email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const user = result.rows[0];
 
     if (!user.is_active) {
-      console.log('❌ User inactive:', email);
+      console.log('❌ User inactive:', user.username);
       return res.status(401).json({ error: 'User account is inactive' });
     }
 
     // Verify password
     const passwordMatch = await bcryptjs.compare(password, user.password_hash);
     if (!passwordMatch) {
-      console.log('❌ Invalid password for:', email);
+      console.log('❌ Invalid password for:', user.username);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
