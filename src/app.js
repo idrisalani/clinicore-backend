@@ -17,6 +17,7 @@ import consultationRoutes from './routes/consultationRoutes.js';
 import labRoutes from './routes/labRoutes.js';
 import pharmacyRoutes from './routes/pharmacyRoutes.js';
 import billingRoutes from './routes/billingRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 const app = express();
 
@@ -62,6 +63,9 @@ app.get('/api/v1', (req, res) => {
 // ==========================================
 // API Routes
 // ==========================================
+
+// Admin routes
+app.use('/api/v1/admin', adminRoutes);
 
 // Authentication routes
 app.use('/api/v1/auth', authRoutes);
