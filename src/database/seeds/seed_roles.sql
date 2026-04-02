@@ -32,55 +32,55 @@ INSERT OR IGNORE INTO roles (role_name, description, level) VALUES
 ('Patient', 'Patient user', 6);
 
 -- ============================================
--- Assign Permissions to Super Admin Role
+-- Assign Permissions to Super Admin Role (role_id = 1)
 -- (All permissions)
 -- ============================================
 
-INSERT OR IGNORE INTO role_permissions (role, permission_id)
-SELECT 'Super Admin', permission_id FROM permissions;
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT 1, permission_id FROM permissions;
 
 -- ============================================
--- Assign Permissions to System Admin Role
--- (All except user deletion and role deletion)
+-- Assign Permissions to System Admin Role (role_id = 2)
+-- (All except delete_users and delete_patients)
 -- ============================================
 
-INSERT OR IGNORE INTO role_permissions (role, permission_id)
-SELECT 'System Admin', permission_id FROM permissions
-WHERE name NOT IN ('delete_user', 'delete_role');
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT 2, permission_id FROM permissions
+WHERE name NOT IN ('delete_users', 'delete_patients');
 
 -- ============================================
--- Assign Permissions to Doctor Role
+-- Assign Permissions to Doctor Role (role_id = 4)
 -- (Clinical modules only)
 -- ============================================
 
-INSERT OR IGNORE INTO role_permissions (role, permission_id)
-SELECT 'Doctor', permission_id FROM permissions
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT 4, permission_id FROM permissions
 WHERE resource IN ('Dashboard', 'Patients', 'Appointments', 'Consultations', 'Lab', 'Pharmacy');
 
 -- ============================================
--- Assign Permissions to Staff Role
+-- Assign Permissions to Staff Role (role_id = 5)
 -- (Limited permissions)
 -- ============================================
 
-INSERT OR IGNORE INTO role_permissions (role, permission_id)
-SELECT 'Staff', permission_id FROM permissions
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT 5, permission_id FROM permissions
 WHERE name IN (
   'view_dashboard',
   'view_patients',
-  'create_patient',
+  'create_patients',
   'view_appointments',
-  'create_appointment',
+  'create_appointments',
   'view_pharmacy',
   'view_billing'
 );
 
 -- ============================================
--- Assign Permissions to Patient Role
+-- Assign Permissions to Patient Role (role_id = 6)
 -- (Self-service only)
 -- ============================================
 
-INSERT OR IGNORE INTO role_permissions (role, permission_id)
-SELECT 'Patient', permission_id FROM permissions
+INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+SELECT 6, permission_id FROM permissions
 WHERE name IN (
   'view_dashboard'
 );

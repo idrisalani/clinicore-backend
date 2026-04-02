@@ -23,8 +23,9 @@ CREATE TABLE IF NOT EXISTS roles (
 -- ==========================================
 CREATE TABLE IF NOT EXISTS permissions (
   permission_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  permission_name TEXT UNIQUE NOT NULL,
-  module TEXT,
+  name TEXT UNIQUE NOT NULL,
+  resource TEXT,
+  action TEXT,
   description TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -73,55 +74,12 @@ CREATE TABLE IF NOT EXISTS system_settings (
 -- ==========================================
 
 CREATE INDEX IF NOT EXISTS idx_roles_role_name ON roles(role_name);
-CREATE INDEX IF NOT EXISTS idx_permissions_module ON permissions(module);
+CREATE INDEX IF NOT EXISTS idx_permissions_resource ON permissions(resource);
 CREATE INDEX IF NOT EXISTS idx_role_permissions_role_id ON role_permissions(role_id);
 CREATE INDEX IF NOT EXISTS idx_role_permissions_permission_id ON role_permissions(permission_id);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id ON activity_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_timestamp ON activity_logs(timestamp);
 CREATE INDEX IF NOT EXISTS idx_system_settings_setting_key ON system_settings(setting_key);
-
--- ==========================================
--- Seed Default Data
--- ==========================================
-
--- Default Roles
-INSERT OR IGNORE INTO roles (role_name, description, level) VALUES
-  ('Super Admin', 'Full system access - all permissions', 1),
-  ('System Admin', 'Administrative access - most permissions', 2),
-  ('Manager', 'Manager/Department admin', 3),
-  ('Doctor', 'Clinical staff', 4),
-  ('Staff', 'Support staff', 5),
-  ('Patient', 'Patient user', 6);
-
--- Default Permissions (by module)
-INSERT OR IGNORE INTO permissions (permission_name, module, description) VALUES
-  ('view_dashboard', 'Dashboard', 'View dashboard'),
-  ('view_users', 'Users', 'View all users'),
-  ('create_users', 'Users', 'Create new users'),
-  ('edit_users', 'Users', 'Edit user details'),
-  ('delete_users', 'Users', 'Delete users'),
-  ('manage_roles', 'Roles', 'Create/edit roles'),
-  ('manage_permissions', 'Permissions', 'Assign permissions'),
-  ('view_patients', 'Patients', 'View patients'),
-  ('create_patients', 'Patients', 'Create patients'),
-  ('edit_patients', 'Patients', 'Edit patient details'),
-  ('delete_patients', 'Patients', 'Delete patients'),
-  ('view_appointments', 'Appointments', 'View appointments'),
-  ('create_appointments', 'Appointments', 'Create appointments'),
-  ('view_consultations', 'Consultations', 'View consultations'),
-  ('view_lab', 'Lab', 'View lab orders'),
-  ('create_lab_orders', 'Lab', 'Create lab orders'),
-  ('view_pharmacy', 'Pharmacy', 'View pharmacy'),
-  ('create_prescriptions', 'Pharmacy', 'Create prescriptions'),
-  ('view_billing', 'Billing', 'View billing/invoices'),
-  ('create_invoices', 'Billing', 'Create invoices'),
-  ('record_payments', 'Billing', 'Record payments'),
-  ('view_logs', 'Admin', 'View activity logs'),
-  ('manage_settings', 'Admin', 'Manage system settings');
-
--- Assign all permissions to Super Admin
-INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
-SELECT 1, permission_id FROM permissions;
 
 -- ==========================================
 -- NOTES FOR DEVELOPERS
@@ -134,8 +92,9 @@ SELECT 1, permission_id FROM permissions;
 
 2. Permissions Table:
    - Granular access control
-   - Organized by module (Users, Patients, Billing, etc.)
-   - Can be assigned to multiple roles
+   - Organized by resource (Users, Patients, Billing, etc.)
+   - Each permission has: name, resource, action, description
+   - Actions: read, create, update, delete, manage
 
 3. Role Permissions:
    - Many-to-many relationship
@@ -158,7 +117,10 @@ SELECT 1, permission_id FROM permissions;
    - Log all admin actions to activity_logs
 
 7. Default Setup:
-   - Super Admin has ALL permissions
+   - Super Admin has ALL permissions (via seed_roles.sql)
    - Other roles can be configured via admin panel
-   - All permissions are seeded at install
+   - All permissions are seeded at install (via seed_permissions.sql and seed_roles.sql)
+
+NOTE: All INSERT/SEED statements are in the separate seed files in src/database/seeds/
+      This schema file should ONLY contain table and index definitions.
 */

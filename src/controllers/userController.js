@@ -24,7 +24,7 @@ export const getCurrentUser = async (req, res) => {
       `SELECT p.permission_id, p.name, p.description, p.resource, p.action
        FROM permissions p
        INNER JOIN role_permissions rp ON p.permission_id = rp.permission_id
-       WHERE rp.role = ?`,
+       WHERE rp.role_id = ?`,
       [user.role]
     );
 
@@ -70,7 +70,7 @@ export const getUserPermissions = async (req, res) => {
       `SELECT p.permission_id, p.name, p.description, p.resource, p.action
        FROM permissions p
        INNER JOIN role_permissions rp ON p.permission_id = rp.permission_id
-       WHERE rp.role = ?`,
+       WHERE rp.role_id = ?`,
       [userRole]
     );
 

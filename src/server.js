@@ -11,40 +11,139 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 5000;
 
 // ==========================================
+// DATABASE AUTO-INITIALIZATION FUNCTION
+// ==========================================
+
+/**
+ * Check if database tables exist
+ */
+function checkTablesExist() {
+  return new Promise((resolve) => {
+    db.all(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
+      (err, tables) => {
+        if (err) {
+          console.error('Error checking tables:', err.message);
+          resolve(false);
+        } else {
+          resolve(tables && tables.length > 0);
+        }
+      }
+    );
+  });
+}
+
+/**
+ * Auto-initialize database if tables are missing
+ * Prevents init script from calling process.exit()
+ */
+async function autoInitializeDatabase() {
+  try {
+    const tablesExist = await checkTablesExist();
+    
+    if (tablesExist) {
+      console.log('✅ Database tables already exist - skipping initialization\n');
+      return true;
+    }
+    
+    console.log('🔧 Database tables not found - auto-initializing...\n');
+    
+    const initPath = path.join(__dirname, 'database', 'init_PROPER.js');
+    
+    if (!fs.existsSync(initPath)) {
+      console.warn('⚠️  init_PROPER.js not found at:', initPath);
+      console.warn('   Continuing with server startup...\n');
+      return false;
+    }
+
+    try {
+      console.log('📋 Loading init_PROPER.js...');
+      
+      // CRITICAL: Prevent process.exit() call from init script
+      const originalExit = process.exit;
+      process.exit = (code) => {
+        console.log('ℹ️  Init script attempted to exit (suppressed - server continuing)');
+        return undefined;
+      };
+      
+      try {
+        // Import the init module - this will auto-run on import
+        const initModule = await import('./database/init_PROPER.js');
+        console.log('✅ init_PROPER.js executed successfully\n');
+        
+        // Also try to call exported function if it exists
+        if (initModule.initializeDatabase && typeof initModule.initializeDatabase === 'function') {
+          console.log('🔄 Running initializeDatabase function...');
+          await initModule.initializeDatabase();
+        }
+        
+        // Small delay to ensure all writes complete
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        console.log('✅ Database auto-initialization complete!\n');
+        return true;
+      } finally {
+        // Restore original process.exit
+        process.exit = originalExit;
+      }
+    } catch (initErr) {
+      // Restore process.exit in case of error
+      process.exit = process.exit;
+      
+      console.error('❌ Error during initialization:', initErr.message);
+      if (initErr.stack) {
+        console.error('Stack:', initErr.stack);
+      }
+      console.log('⚠️  Database may not be fully initialized, but server will continue...\n');
+      return false;
+    }
+  } catch (err) {
+    console.error('❌ Database initialization error:', err.message);
+    if (err.stack) {
+      console.error('Stack:', err.stack);
+    }
+    console.log('⚠️  Continuing with server startup...\n');
+    return false;
+  }
+}
+
+// ==========================================
 // DATABASE INITIALIZATION
 // ==========================================
 
-console.log('\n🔧 Checking CliniCore Database...\n');
+console.log('\n🗄️  SQLite Database: ' + path.join(__dirname, '../../clinicore.db') + '\n');
+console.log('🔧 Checking CliniCore Database...\n');
 
 try {
-  const dbPath = path.join(__dirname, 'database', 'clinicore.db');
+  const dbPath = path.join(__dirname, '../../clinicore.db');
   const dbExists = fs.existsSync(dbPath);
 
   if (!dbExists) {
-    console.log('📋 Database not found. Initializing...\n');
-    
-    // Load and execute init_SIMPLE.js
-    const initPath = path.join(__dirname, 'database', 'init_SIMPLE.js');
-    
-    if (fs.existsSync(initPath)) {
-      // Import and run initialization
-      const { default: initializeDatabase } = await import('./src/database/init_SIMPLE.js');
-      // Note: init_SIMPLE.js handles its own execution
-      console.log('✅ Database initialization triggered\n');
-    } else {
-      console.warn('⚠️  init_SIMPLE.js not found. Database will be created on first run.\n');
-    }
+    console.log('📋 Database file not found. Will be created during initialization.\n');
   } else {
-    console.log('✅ Database found and ready\n');
+    console.log('✅ Database file found\n');
   }
 
+  // Check if tables exist and auto-initialize if needed
+  await autoInitializeDatabase();
+
   // Verify database connection
-  db.run('SELECT 1', (err) => {
-    if (err) {
-      console.error('❌ Database connection failed:', err.message);
-      process.exit(1);
-    }
+  const dbReady = await new Promise((resolve) => {
+    db.run('SELECT 1', (err) => {
+      if (err) {
+        console.error('❌ Database connection failed:', err.message);
+        resolve(false);
+      } else {
+        console.log('✅ Database connection verified');
+        resolve(true);
+      }
+    });
   });
+
+  if (!dbReady) {
+    console.error('❌ Cannot proceed - database not accessible');
+    process.exit(1);
+  }
 
   // ==========================================
   // START SERVER
@@ -76,6 +175,7 @@ try {
   Admin:    admin1@clinicore.com
   Doctor:   doctor@clinicore.com
   Patient:  patient1@email.com
+  Password: SecurePass123
 
 📊 API ENDPOINTS:
   Health Check:
@@ -132,6 +232,8 @@ try {
 
 } catch (error) {
   console.error('❌ Server startup error:', error.message);
-  console.error('Stack:', error.stack);
+  if (error.stack) {
+    console.error('Stack:', error.stack);
+  }
   process.exit(1);
 }

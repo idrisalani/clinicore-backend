@@ -33,7 +33,7 @@ export const checkPermission = (requiredPermission) => {
       const permissionsRows = await db.all(`
         SELECT p.name FROM permissions p
         JOIN role_permissions rp ON p.permission_id = rp.permission_id
-        WHERE rp.role = ?
+        WHERE rp.role_id = ?
       `, [userRow.role]);
 
       const permissions = permissionsRows.map(p => p.name);

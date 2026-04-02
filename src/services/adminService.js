@@ -267,7 +267,7 @@ export class AdminService {
       SELECT p.permission_id, p.name, p.description, p.resource, p.action
       FROM permissions p
       JOIN role_permissions rp ON p.permission_id = rp.permission_id
-      WHERE rp.role = ?
+      WHERE rp.role_id = ?
       ORDER BY p.resource, p.action
     `;
 
