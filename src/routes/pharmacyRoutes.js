@@ -1,3 +1,8 @@
+// ============================================
+// Pharmacy Routes — COMPLETE UPDATED FILE
+// File: backend/src/routes/pharmacyRoutes.js
+// ============================================
+
 import express from 'express';
 import {
   getAllPrescriptions,
@@ -10,6 +15,10 @@ import {
   getMedicationById,
   createMedication,
   getPharmacyStats,
+  // ── NEW: Drug Expiry endpoints ──
+  getMedicationExpiry,
+  getLowStockMedications,
+  updateMedicationInventory,
 } from '../controllers/pharmacyController.js';
 import { authenticate } from '../middleware/auth.js';
 
@@ -21,39 +30,27 @@ router.use(authenticate);
 // ==========================================
 // PRESCRIPTION ROUTES
 // ==========================================
-
-// Get all prescriptions
-router.get('/prescriptions', getAllPrescriptions);
-
-// Get prescription statistics
-router.get('/stats/overview', getPharmacyStats);
-
-// Get patient prescriptions
-router.get('/prescriptions/patient/:patientId', getPatientPrescriptions);
-
-// Get single prescription
-router.get('/prescriptions/:id', getPrescriptionById);
-
-// Create prescription
-router.post('/prescriptions', createPrescription);
-
-// Update prescription
-router.put('/prescriptions/:id', updatePrescription);
-
-// Delete prescription
-router.delete('/prescriptions/:id', deletePrescription);
+router.get('/prescriptions',                     getAllPrescriptions);
+router.get('/prescriptions/patient/:patientId',  getPatientPrescriptions);
+router.get('/prescriptions/:id',                 getPrescriptionById);
+router.post('/prescriptions',                    createPrescription);
+router.put('/prescriptions/:id',                 updatePrescription);
+router.delete('/prescriptions/:id',              deletePrescription);
 
 // ==========================================
 // MEDICATION ROUTES
+// ORDER MATTERS: specific paths before :id
 // ==========================================
+router.get('/medications',              getAllMedications);
+router.get('/medications/expiry',       getMedicationExpiry);       // ← NEW
+router.get('/medications/low-stock',    getLowStockMedications);    // ← NEW
+router.get('/medications/:id',          getMedicationById);
+router.post('/medications',             createMedication);
+router.put('/medications/:id/inventory', updateMedicationInventory); // ← NEW
 
-// Get all medications
-router.get('/medications', getAllMedications);
-
-// Get single medication
-router.get('/medications/:id', getMedicationById);
-
-// Create medication
-router.post('/medications', createMedication);
+// ==========================================
+// STATS
+// ==========================================
+router.get('/stats/overview', getPharmacyStats);
 
 export default router;

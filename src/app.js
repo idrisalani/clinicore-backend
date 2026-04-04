@@ -18,6 +18,7 @@ import labRoutes from './routes/labRoutes.js';
 import pharmacyRoutes from './routes/pharmacyRoutes.js';
 import billingRoutes from './routes/billingRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import queueRoutes from './routes/queueRoutes.js';
 
 const app = express();
 
@@ -90,6 +91,9 @@ app.use('/api/v1/pharmacy', pharmacyRoutes);
 
 // Billing routes (PHASE 7)
 app.use('/api/v1/billing', billingRoutes);
+
+// Queue routes
+app.use('/api/v1/queue', queueRoutes)
 
 // ==========================================
 // Error Handling Middleware

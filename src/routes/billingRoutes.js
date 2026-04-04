@@ -1,3 +1,8 @@
+// ============================================
+// Billing Routes — COMPLETE UPDATED FILE
+// File: backend/src/routes/billingRoutes.js
+// ============================================
+
 import express from 'express';
 import {
   getAllInvoices,
@@ -10,6 +15,11 @@ import {
   getAllServices,
   createService,
   getBillingStats,
+  // ── NEW: Financial Report endpoints ──
+  getRevenueReport,
+  getRevenueByService,
+  getOutstandingReport,
+  getFinancialSummary,
 } from '../controllers/billingController.js';
 import { authenticate } from '../middleware/auth.js';
 
@@ -21,43 +31,34 @@ router.use(authenticate);
 // ==========================================
 // INVOICE ROUTES
 // ==========================================
-
-// Get all invoices
-router.get('/invoices', getAllInvoices);
-
-// Get billing statistics
-router.get('/stats/overview', getBillingStats);
-
-// Get single invoice
+router.get('/invoices',     getAllInvoices);
 router.get('/invoices/:id', getInvoiceById);
-
-// Create invoice
-router.post('/invoices', createInvoice);
-
-// Update invoice
+router.post('/invoices',    createInvoice);
 router.put('/invoices/:id', updateInvoice);
-
-// Delete invoice
 router.delete('/invoices/:id', deleteInvoice);
 
 // ==========================================
 // PAYMENT ROUTES
 // ==========================================
-
-// Record payment
 router.post('/payments', recordPayment);
-
-// Get payments
-router.get('/payments', getPayments);
+router.get('/payments',  getPayments);
 
 // ==========================================
 // SERVICE ROUTES
 // ==========================================
-
-// Get all services
-router.get('/services', getAllServices);
-
-// Create service
+router.get('/services',  getAllServices);
 router.post('/services', createService);
+
+// ==========================================
+// STATS & REPORTS — ORDER MATTERS:
+// specific paths before :id wildcards
+// ==========================================
+router.get('/stats/overview',          getBillingStats);
+
+// ── NEW Financial Report Routes ──────────
+router.get('/reports/summary',         getFinancialSummary);
+router.get('/reports/revenue',         getRevenueReport);
+router.get('/reports/by-service',      getRevenueByService);
+router.get('/reports/outstanding',     getOutstandingReport);
 
 export default router;
