@@ -1,4 +1,5 @@
 import { query } from '../config/database.js';
+import bcrypt from 'bcryptjs';
 import Joi from 'joi';
 
 // ==========================================
@@ -36,6 +37,25 @@ const patientSchema = Joi.object({
 });
 
 // ==========================================
+// Helper: derive patient portal credentials
+// Password = first 4 letters of surname (UPPER) + last 4 digits of phone
+// e.g. Okafor / 08012345678 → OKAF5678
+// ==========================================
+const derivePortalCredentials = ({ first_name, last_name, phone, email }) => {
+  const loginEmail = email?.trim()
+    ? email.trim().toLowerCase()
+    : `${phone.replace(/\D/g, '')}@clinicore.patient`;
+
+  const username = `patient_${phone.replace(/\D/g, '')}`;
+
+  const namePart  = last_name.replace(/\s/g, '').substring(0, 4).toUpperCase();
+  const phonePart = phone.replace(/\D/g, '').slice(-4);
+  const defaultPassword = `${namePart}${phonePart}`;
+
+  return { loginEmail, username, defaultPassword };
+};
+
+// ==========================================
 // Get All Patients with Pagination & Search
 // ==========================================
 export const getAllPatients = async (req, res) => {
@@ -54,20 +74,16 @@ export const getAllPatients = async (req, res) => {
       params = [searchTerm, searchTerm, searchTerm, searchTerm];
     }
 
-    // Get total count
     const countResult = await query(
       `SELECT COUNT(*) as total FROM patients ${whereClause}`,
       params
     );
-
     const total = countResult.rows[0]?.total || 0;
 
-    // Get paginated results
     const patientsResult = await query(
       `SELECT * FROM patients ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
-
     const patients = patientsResult.rows || [];
 
     console.log(`✅ Found ${patients.length} patients out of ${total} total`);
@@ -93,7 +109,6 @@ export const getAllPatients = async (req, res) => {
 export const getPatientById = async (req, res) => {
   try {
     const { id } = req.params;
-
     console.log(`👤 Getting patient: ${id}`);
 
     const patientResult = await query(
@@ -102,13 +117,11 @@ export const getPatientById = async (req, res) => {
     );
 
     if (!patientResult.rows || patientResult.rows.length === 0) {
-      console.log(`❌ Patient not found: ${id}`);
       return res.status(404).json({ error: 'Patient not found' });
     }
 
     const patient = patientResult.rows[0];
 
-    // Get recent appointments
     const appointmentsResult = await query(
       `SELECT * FROM appointments 
        WHERE patient_id = ? AND appointment_date >= date('now') 
@@ -116,7 +129,6 @@ export const getPatientById = async (req, res) => {
       [id]
     );
 
-    // Get medical history
     const historyResult = await query(
       `SELECT * FROM medical_history 
        WHERE patient_id = ? 
@@ -124,7 +136,6 @@ export const getPatientById = async (req, res) => {
       [id]
     );
 
-    // Get current medications
     const medicationsResult = await query(
       `SELECT * FROM medications 
        WHERE patient_id = ? AND is_active = 1 
@@ -158,69 +169,69 @@ export const createPatient = async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    console.log(`➕ Creating patient: ${value.first_name} ${value.last_name}`);
-
     const {
-      first_name,
-      last_name,
-      email,
-      phone,
-      date_of_birth,
-      gender,
-      address,
-      city,
-      state,
-      zip_code,
-      blood_type,
-      allergies,
-      chronic_conditions,
-      insurance_provider,
-      insurance_policy_number,
-      insurance_group_number,
-      emergency_contact_name,
-      emergency_contact_phone,
+      first_name, last_name, email, phone, date_of_birth, gender,
+      address, city, state, zip_code, blood_type, allergies,
+      chronic_conditions, insurance_provider, insurance_policy_number,
+      insurance_group_number, emergency_contact_name, emergency_contact_phone,
       emergency_contact_relationship,
     } = value;
 
-    // Check if email already exists
+    console.log(`➕ Creating patient: ${first_name} ${last_name}`);
+
+    // Check if email already exists in patients
     if (email) {
       const existing = await query(
         'SELECT patient_id FROM patients WHERE email = ?',
         [email]
       );
       if (existing.rows && existing.rows.length > 0) {
-        console.log('❌ Email already exists:', email);
         return res.status(400).json({ error: 'Email already exists' });
       }
     }
 
+    // ── Derive portal credentials ─────────────────────────────────────────────
+    const { loginEmail, username, defaultPassword } =
+      derivePortalCredentials({ first_name, last_name, phone, email });
+
+    // ── Create user account (if not already exists) ───────────────────────────
+    let userId = null;
+    const existingUser = await query(
+      'SELECT user_id FROM users WHERE email = ? OR username = ?',
+      [loginEmail, username]
+    );
+
+    if (existingUser.rows && existingUser.rows.length > 0) {
+      userId = existingUser.rows[0].user_id;
+      console.log(`ℹ  User account already exists for ${loginEmail} — linking`);
+    } else {
+      const passwordHash = await bcrypt.hash(defaultPassword, 10);
+      const userResult = await query(
+        `INSERT INTO users (username, email, password_hash, full_name, phone, role, is_active)
+         VALUES (?, ?, ?, ?, ?, 'patient', 1)`,
+        [username, loginEmail, passwordHash, `${first_name} ${last_name}`, phone]
+      );
+      userId = userResult.lastID;
+      console.log(`✅ User account created: ID ${userId} (${loginEmail})`);
+    }
+
+    // ── Create patient record linked to user ──────────────────────────────────
     const result = await query(
       `INSERT INTO patients (
-        first_name, last_name, email, phone, date_of_birth, gender,
+        user_id, first_name, last_name, email, phone, date_of_birth, gender,
         address, city, state, zip_code, blood_type, allergies,
         chronic_conditions, insurance_provider, insurance_policy_number,
         insurance_group_number, emergency_contact_name, emergency_contact_phone,
         emergency_contact_relationship, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        first_name,
-        last_name,
-        email || null,
-        phone,
-        date_of_birth,
-        gender || null,
-        address || null,
-        city || null,
-        state || null,
-        zip_code || null,
-        blood_type || null,
-        allergies || null,
-        chronic_conditions || null,
-        insurance_provider || null,
-        insurance_policy_number || null,
-        insurance_group_number || null,
-        emergency_contact_name || null,
-        emergency_contact_phone || null,
+        userId,
+        first_name, last_name, email || null, phone, date_of_birth,
+        gender || null, address || null, city || null, state || null,
+        zip_code || null, blood_type || null, allergies || null,
+        chronic_conditions || null, insurance_provider || null,
+        insurance_policy_number || null, insurance_group_number || null,
+        emergency_contact_name || null, emergency_contact_phone || null,
         emergency_contact_relationship || null,
         req.user.user_id,
       ]
@@ -231,11 +242,17 @@ export const createPatient = async (req, res) => {
     res.status(201).json({
       message: 'Patient created successfully',
       patient_id: result.lastID,
-      patient: { patient_id: result.lastID, ...value },
+      patient: { patient_id: result.lastID, user_id: userId, ...value },
+      // Staff hands these to the patient for portal access
+      portal_credentials: {
+        email:            loginEmail,
+        default_password: defaultPassword,
+        note: 'Give these to the patient so they can access their portal.',
+      },
     });
   } catch (error) {
     console.error('❌ Error creating patient:', error);
-    res.status(500).json({ error: 'Failed to create patient' });
+    res.status(500).json({ error: 'Failed to create patient', details: error.message });
   }
 };
 
@@ -246,45 +263,26 @@ export const updatePatient = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Validate input
     const { error, value } = patientSchema.validate(req.body, { abortEarly: false });
     if (error) {
-      console.log('❌ Validation error:', error.message);
       return res.status(400).json({ error: error.message });
     }
 
     console.log(`✏️ Updating patient: ${id}`);
 
-    // Check if patient exists
     const existing = await query(
       'SELECT patient_id FROM patients WHERE patient_id = ? AND is_active = 1',
       [id]
     );
-
     if (!existing.rows || existing.rows.length === 0) {
-      console.log(`❌ Patient not found: ${id}`);
       return res.status(404).json({ error: 'Patient not found' });
     }
 
     const {
-      first_name,
-      last_name,
-      email,
-      phone,
-      date_of_birth,
-      gender,
-      address,
-      city,
-      state,
-      zip_code,
-      blood_type,
-      allergies,
-      chronic_conditions,
-      insurance_provider,
-      insurance_policy_number,
-      insurance_group_number,
-      emergency_contact_name,
-      emergency_contact_phone,
+      first_name, last_name, email, phone, date_of_birth, gender,
+      address, city, state, zip_code, blood_type, allergies,
+      chronic_conditions, insurance_provider, insurance_policy_number,
+      insurance_group_number, emergency_contact_name, emergency_contact_phone,
       emergency_contact_relationship,
     } = value;
 
@@ -298,36 +296,19 @@ export const updatePatient = async (req, res) => {
         updated_by = ?, updated_at = CURRENT_TIMESTAMP
        WHERE patient_id = ?`,
       [
-        first_name,
-        last_name,
-        email || null,
-        phone,
-        date_of_birth,
-        gender || null,
-        address || null,
-        city || null,
-        state || null,
-        zip_code || null,
-        blood_type || null,
-        allergies || null,
-        chronic_conditions || null,
-        insurance_provider || null,
-        insurance_policy_number || null,
-        insurance_group_number || null,
-        emergency_contact_name || null,
-        emergency_contact_phone || null,
+        first_name, last_name, email || null, phone, date_of_birth,
+        gender || null, address || null, city || null, state || null,
+        zip_code || null, blood_type || null, allergies || null,
+        chronic_conditions || null, insurance_provider || null,
+        insurance_policy_number || null, insurance_group_number || null,
+        emergency_contact_name || null, emergency_contact_phone || null,
         emergency_contact_relationship || null,
-        req.user.user_id,
-        id,
+        req.user.user_id, id,
       ]
     );
 
     console.log(`✅ Patient updated: ${id}`);
-
-    res.json({
-      message: 'Patient updated successfully',
-      patient_id: id,
-    });
+    res.json({ message: 'Patient updated successfully', patient_id: id });
   } catch (error) {
     console.error('❌ Error updating patient:', error);
     res.status(500).json({ error: 'Failed to update patient' });
@@ -340,7 +321,6 @@ export const updatePatient = async (req, res) => {
 export const deletePatient = async (req, res) => {
   try {
     const { id } = req.params;
-
     console.log(`🗑️ Deleting patient: ${id}`);
 
     const result = await query(
@@ -349,12 +329,10 @@ export const deletePatient = async (req, res) => {
     );
 
     if (result.changes === 0) {
-      console.log(`❌ Patient not found: ${id}`);
       return res.status(404).json({ error: 'Patient not found' });
     }
 
     console.log(`✅ Patient deleted: ${id}`);
-
     res.json({ message: 'Patient deleted successfully' });
   } catch (error) {
     console.error('❌ Error deleting patient:', error);
@@ -376,24 +354,18 @@ export const searchPatients = async (req, res) => {
     console.log(`🔍 Searching patients: "${q}"`);
 
     const searchTerm = `%${q}%`;
-
     const result = await query(
       `SELECT patient_id, first_name, last_name, email, phone, date_of_birth
        FROM patients 
        WHERE is_active = 1 AND (
-         first_name LIKE ? OR 
-         last_name LIKE ? OR 
-         email LIKE ? OR 
-         phone LIKE ?
+         first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?
        )
-       ORDER BY first_name ASC
-       LIMIT 20`,
+       ORDER BY first_name ASC LIMIT 20`,
       [searchTerm, searchTerm, searchTerm, searchTerm]
     );
 
     const patients = result.rows || [];
     console.log(`✅ Found ${patients.length} matches`);
-
     res.json({ patients });
   } catch (error) {
     console.error('❌ Error searching patients:', error);
@@ -407,19 +379,15 @@ export const searchPatients = async (req, res) => {
 export const getPatientMedicalHistory = async (req, res) => {
   try {
     const { id } = req.params;
-
     console.log(`📋 Getting medical history for patient: ${id}`);
 
     const result = await query(
-      `SELECT * FROM medical_history 
-       WHERE patient_id = ? 
-       ORDER BY visit_date DESC`,
+      `SELECT * FROM medical_history WHERE patient_id = ? ORDER BY visit_date DESC`,
       [id]
     );
 
     const history = result.rows || [];
     console.log(`✅ Found ${history.length} records`);
-
     res.json({ medical_history: history });
   } catch (error) {
     console.error('❌ Error getting medical history:', error);
@@ -434,7 +402,9 @@ export const getPatientStats = async (req, res) => {
   try {
     console.log('📊 Getting patient statistics');
 
-    const totalResult = await query('SELECT COUNT(*) as total FROM patients WHERE is_active = 1');
+    const totalResult = await query(
+      'SELECT COUNT(*) as total FROM patients WHERE is_active = 1'
+    );
     const appointmentsResult = await query(
       'SELECT COUNT(*) as total FROM appointments WHERE status = "Scheduled" AND appointment_date >= date("now")'
     );
@@ -443,13 +413,12 @@ export const getPatientStats = async (req, res) => {
     );
 
     const stats = {
-      total_patients: totalResult.rows[0]?.total || 0,
-      upcoming_appointments: appointmentsResult.rows[0]?.total || 0,
-      recent_visits: historyResult.rows[0]?.total || 0,
+      total_patients:         totalResult.rows[0]?.total || 0,
+      upcoming_appointments:  appointmentsResult.rows[0]?.total || 0,
+      recent_visits:          historyResult.rows[0]?.total || 0,
     };
 
     console.log(`✅ Stats retrieved:`, stats);
-
     res.json(stats);
   } catch (error) {
     console.error('❌ Error getting stats:', error);
