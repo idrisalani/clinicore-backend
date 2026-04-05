@@ -19,6 +19,11 @@ import pharmacyRoutes from './routes/pharmacyRoutes.js';
 import billingRoutes from './routes/billingRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import queueRoutes from './routes/queueRoutes.js';
+import pdfRoutes from './routes/pdfRoutes.js';
+import twoFactorRoutes   from './routes/twoFactorRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import barcodeRoutes from './routes/barcodeRoutes.js';
+import maternityRoutes from './routes/maternityRoutes.js';
 
 const app = express();
 
@@ -93,7 +98,20 @@ app.use('/api/v1/pharmacy', pharmacyRoutes);
 app.use('/api/v1/billing', billingRoutes);
 
 // Queue routes
-app.use('/api/v1/queue', queueRoutes)
+app.use('/api/v1/queue', queueRoutes);
+
+//PDF routes
+app.use('/api/v1/pdf', pdfRoutes);
+
+// Inside app setup:
+app.use('/api/v1/auth/2fa',       twoFactorRoutes);
+app.use('/api/v1/notifications',  notificationRoutes);
+
+//Barcode routes
+app.use('/api/v1/barcode', barcodeRoutes);
+
+//Maternity routes
+app.use('/api/v1/maternity', maternityRoutes);
 
 // ==========================================
 // Error Handling Middleware

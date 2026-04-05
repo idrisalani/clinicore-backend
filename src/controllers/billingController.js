@@ -5,6 +5,8 @@
 
 import { query } from '../config/database.js';
 import Joi from 'joi';
+import { sendPaymentConfirmation, logNotification } from '../services/notificationService.js';
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const getOne = async (sql, params = []) => (await query(sql, params)).rows?.[0] || null;
@@ -199,38 +201,83 @@ export const recordPayment = async (req, res) => {
   try {
     const { error, value } = paymentSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.message });
-
-    const { invoice_id, patient_id, payment_date, amount_paid, payment_method, reference_number, notes } = value;
-
-    const invoiceResult = await query('SELECT invoice_id, total_amount, amount_paid FROM invoices WHERE invoice_id = ?', [invoice_id]);
+ 
+    const { invoice_id, patient_id, payment_date, amount_paid,
+            payment_method, reference_number, notes } = value;
+ 
+    const invoiceResult = await query(
+      'SELECT invoice_id, total_amount, amount_paid FROM invoices WHERE invoice_id = ?',
+      [invoice_id]
+    );
     if (!invoiceResult.rows?.length) return res.status(404).json({ error: 'Invoice not found' });
-
-    const invoice       = invoiceResult.rows[0];
-    const newTotalPaid  = (invoice.amount_paid || 0) + amount_paid;
-    const newStatus     = newTotalPaid >= invoice.total_amount ? 'Paid' : 'Partially Paid';
-
+ 
+    const invoice      = invoiceResult.rows[0];
+    const newTotalPaid = (invoice.amount_paid || 0) + amount_paid;
+    const newAmountDue = Math.max(0, invoice.total_amount - newTotalPaid);
+    const newStatus    = newTotalPaid >= invoice.total_amount ? 'Paid' : 'Partially Paid';
+ 
     const paymentResult = await query(
-      `INSERT INTO payments (invoice_id, patient_id, payment_date, amount_paid,
-        payment_method, reference_number, notes, received_by)
+      `INSERT INTO payments
+        (invoice_id, patient_id, payment_date, amount_paid,
+         payment_method, reference_number, notes, received_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [invoice_id, patient_id, payment_date, amount_paid,
-       payment_method||'Cash', reference_number||null, notes||null, req.user.user_id]
+       payment_method || 'Cash', reference_number || null,
+       notes || null, req.user.user_id]
     );
-
+ 
     await query(
       'UPDATE invoices SET amount_paid=?, amount_due=?, status=? WHERE invoice_id=?',
-      [newTotalPaid, Math.max(0, invoice.total_amount - newTotalPaid), newStatus, invoice_id]
+      [newTotalPaid, newAmountDue, newStatus, invoice_id]
     );
-
+ 
     const receiptNumber = `RCP-${Date.now()}`;
     await query(
       'INSERT INTO receipts (payment_id, receipt_number, receipt_date, amount, issued_by) VALUES (?, ?, ?, ?, ?)',
-      [paymentResult.lastID, receiptNumber, new Date().toISOString().split('T')[0], amount_paid, req.user.user_id]
+      [paymentResult.lastID, receiptNumber,
+       new Date().toISOString().split('T')[0], amount_paid, req.user.user_id]
     );
-
+ 
+    // ── Fire-and-forget: notify patient of payment ────────────────────────────
+    ;(async () => {
+      try {
+        const patResult = await query(
+          `SELECT p.first_name, p.last_name, p.phone, p.email,
+                  i.invoice_number
+           FROM patients p
+           JOIN invoices i ON i.invoice_id = ?
+           WHERE p.patient_id = ?`,
+          [invoice_id, patient_id]
+        );
+        const pat = patResult.rows?.[0];
+        if (!pat) return;
+ 
+        await sendPaymentConfirmation({
+          patientName:      `${pat.first_name} ${pat.last_name}`,
+          patientPhone:     pat.phone,
+          patientEmail:     pat.email,
+          invoiceNumber:    pat.invoice_number || `INV-${invoice_id}`,
+          amountPaid:       amount_paid,
+          remainingBalance: newAmountDue,
+        });
+ 
+        await logNotification(query, {
+          patient_id,
+          type:        'payment',
+          channel:     pat.phone && pat.email ? 'both' : pat.phone ? 'sms' : 'email',
+          recipient:   pat.phone || pat.email,
+          body:        `Payment of ₦${Number(amount_paid).toLocaleString('en-NG')} confirmed`,
+          status:      'sent',
+          reference_id:String(invoice_id),
+        });
+      } catch (notifErr) {
+        console.warn('Payment notification failed (non-critical):', notifErr.message);
+      }
+    })();
+ 
     res.status(201).json({
-      message: 'Payment recorded successfully',
-      payment_id: paymentResult.lastID,
+      message:        'Payment recorded successfully',
+      payment_id:     paymentResult.lastID,
       receipt_number: receiptNumber,
       amount_paid,
       invoice_status: newStatus,
