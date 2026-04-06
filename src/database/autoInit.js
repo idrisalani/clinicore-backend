@@ -29,6 +29,37 @@ export function checkTablesExist() {
 }
 
 /**
+ * Add inventory columns to medication_catalog if they don't exist yet.
+ * Safe to run every startup — duplicate column errors are silently ignored.
+ */
+async function ensureInventoryColumns() {
+  const inventoryCols = [
+    "ALTER TABLE medication_catalog ADD COLUMN stock_quantity INTEGER DEFAULT 0",
+    "ALTER TABLE medication_catalog ADD COLUMN reorder_level INTEGER DEFAULT 10",
+    "ALTER TABLE medication_catalog ADD COLUMN expiry_date TEXT",
+    "ALTER TABLE medication_catalog ADD COLUMN batch_number TEXT",
+    "ALTER TABLE medication_catalog ADD COLUMN supplier_name TEXT",
+    "ALTER TABLE medication_catalog ADD COLUMN supplier_phone TEXT",
+    "ALTER TABLE medication_catalog ADD COLUMN supplier_email TEXT",
+    "ALTER TABLE medication_catalog ADD COLUMN storage_location TEXT",
+    "ALTER TABLE medication_catalog ADD COLUMN last_restocked_at TEXT",
+  ];
+
+  for (const sql of inventoryCols) {
+    await new Promise((resolve) => {
+      db.run(sql, (err) => {
+        // "duplicate column name" means it already exists — safe to ignore
+        if (err && !err.message.includes('duplicate column')) {
+          console.warn('⚠️  Migration warning:', err.message);
+        }
+        resolve();
+      });
+    });
+  }
+  console.log('✅ medication_catalog inventory columns verified');
+}
+
+/**
  * Auto-initialize database if needed
  */
 export async function autoInitializeDatabase() {
@@ -37,23 +68,26 @@ export async function autoInitializeDatabase() {
     
     if (tablesExist) {
       console.log('✅ Database tables already exist - skipping initialization');
-      return true;
+    } else {
+      console.log('🔧 Database tables not found - initializing...');
+      
+      // Read and execute init script
+      const initScriptPath = path.join(__dirname, 'init_SIMPLE.js');
+      
+      if (!fs.existsSync(initScriptPath)) {
+        throw new Error('init_SIMPLE.js not found at ' + initScriptPath);
+      }
+      
+      // Dynamically import and run init script
+      const { initializeDatabase } = await import('./init_SIMPLE.js');
+      await initializeDatabase();
+      
+      console.log('✅ Database auto-initialized successfully!');
     }
-    
-    console.log('🔧 Database tables not found - initializing...');
-    
-    // Read and execute init script
-    const initScriptPath = path.join(__dirname, 'init_SIMPLE.js');
-    
-    if (!fs.existsSync(initScriptPath)) {
-      throw new Error('init_SIMPLE.js not found at ' + initScriptPath);
-    }
-    
-    // Dynamically import and run init script
-    const { initializeDatabase } = await import('./init_SIMPLE.js');
-    await initializeDatabase();
-    
-    console.log('✅ Database auto-initialized successfully!');
+
+    // Always run column migrations — safe whether tables are new or existing
+    await ensureInventoryColumns();
+
     return true;
   } catch (err) {
     console.error('❌ Database auto-initialization failed:', err.message);
