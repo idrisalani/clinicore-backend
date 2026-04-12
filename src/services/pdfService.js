@@ -451,9 +451,9 @@ export const generateConsultationPDF = async (c) => {
 <html><head><meta charset="utf-8"><style>
   * { margin:0;padding:0;box-sizing:border-box; }
   body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#1E293B;line-height:1.5; }
-  .section { border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;margin-bottom:14px; }
+  .section { border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;margin-bottom:10px; }
   table { width:100%;border-collapse:collapse; }
-  .footer { margin-top:28px;padding-top:12px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:9px;color:#94A3B8; }
+  .footer { position:fixed;bottom:0;left:0;right:0;padding:8px 24px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;font-size:9px;color:#94A3B8;background:#fff; }
 </style></head>
 <body>
 <div style="max-width:720px;margin:0 auto;padding:0;background:white">
@@ -472,10 +472,10 @@ export const generateConsultationPDF = async (c) => {
     </div>
   </div>
 
-  <div style="padding:20px 24px">
+  <div style="padding:14px 24px 36px 24px">
 
     <!-- Patient banner -->
-    <div style="background:#F0FDFA;border:1px solid #99F6E4;border-radius:8px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+    <div style="background:#F0FDFA;border:1px solid #99F6E4;border-radius:8px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div>
         <div style="font-size:18px;font-weight:700;color:#0D9488">${patientName}</div>
         <div style="font-size:10px;color:#475569;margin-top:3px">
@@ -568,5 +568,9 @@ export const generateConsultationPDF = async (c) => {
 </div>
 </body></html>`;
 
-  return htmlToPdf(html);
+  // Zero page margins — the HTML controls all spacing internally.
+  // This prevents the footer from being nudged onto a blank second page.
+  return htmlToPdf(html, {
+    margin: { top: '0', right: '0', bottom: '0', left: '0' },
+  });
 };
