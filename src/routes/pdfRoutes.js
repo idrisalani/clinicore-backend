@@ -11,6 +11,7 @@ import {
   generatePatientSummaryPDF,
   generateLabResultPDF,
   generateReceiptPDF,
+  generateConsultationPDF,
 } from '../services/pdfService.js';
 import { query } from '../config/database.js';
 
@@ -50,7 +51,6 @@ router.get('/invoice/:id',
         phone: invoice.phone,           email: invoice.email,
       };
 
-      // Patients can only download their own invoices
       if (req.user.role === 'patient') {
         const patRow = await query(
           'SELECT patient_id FROM patients WHERE user_id = ?', [req.user.user_id]
@@ -89,7 +89,6 @@ router.get('/patient/:id',
     try {
       const { id } = req.params;
 
-      // Patients can only download their own summary
       if (req.user.role === 'patient') {
         const patRow = await query(
           'SELECT patient_id FROM patients WHERE user_id = ?', [req.user.user_id]
@@ -149,7 +148,6 @@ router.get('/lab/:id',
 
       const order = orderResult.rows[0];
 
-      // Patients can only download their own results
       if (req.user.role === 'patient') {
         const patRow = await query(
           'SELECT patient_id FROM patients WHERE user_id = ?', [req.user.user_id]
@@ -191,7 +189,6 @@ router.get('/receipt/:paymentId',
 
       const payment = payResult.rows[0];
 
-      // Patient access check
       if (req.user.role === 'patient') {
         const patRow = await query(
           'SELECT patient_id FROM patients WHERE user_id = ?', [req.user.user_id]
@@ -215,6 +212,39 @@ router.get('/receipt/:paymentId',
     } catch (err) {
       console.error('Receipt PDF error:', err);
       res.status(500).json({ error: 'Failed to generate receipt PDF' });
+    }
+  }
+);
+
+// ── GET /pdf/consultation/:id ─────────────────────────────────────────────────
+router.get('/consultation/:id',
+  authorize('admin', 'doctor', 'nurse'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const result = await query(
+        `SELECT c.*,
+                p.first_name, p.last_name, p.phone, p.email,
+                p.date_of_birth, p.blood_type, p.allergies, p.gender,
+                u.full_name AS doctor_name
+         FROM consultations c
+         JOIN patients p ON c.patient_id = p.patient_id
+         LEFT JOIN users u ON c.doctor_id = u.user_id
+         WHERE c.consultation_id = ?`,
+        [id]
+      );
+
+      if (!result.rows?.length) {
+        return res.status(404).json({ error: 'Consultation not found' });
+      }
+
+      const c   = result.rows[0];
+      const pdf = await generateConsultationPDF(c);
+      sendPDF(res, pdf, `Consultation-${String(id).padStart(5,'0')}-${c.last_name || 'Record'}.pdf`);
+    } catch (err) {
+      console.error('Consultation PDF error:', err);
+      res.status(500).json({ error: 'Failed to generate consultation PDF' });
     }
   }
 );
