@@ -11,9 +11,7 @@ const consultationSchema = Joi.object({
     'number.base': 'Patient ID is required',
   }),
   doctor_id: Joi.number().optional(),
-  consultation_date: Joi.date().required().messages({
-    'date.base': 'Consultation date is required',
-  }),
+  consultation_date: Joi.date().optional().default(() => new Date()),
   chief_complaint: Joi.string().required().messages({
     'string.empty': 'Chief complaint is required',
   }),
