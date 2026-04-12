@@ -1,78 +1,72 @@
+// ============================================
+// consultationController.js
+// File: backend/src/controllers/consultationController.js
+// ============================================
+
 import { query } from '../config/database.js';
 import Joi from 'joi';
 
-// ==========================================
-// Validation Schemas
-// ==========================================
+// ── Validation Schema ─────────────────────────────────────────────────────────
 
 const consultationSchema = Joi.object({
-  appointment_id: Joi.number().optional(),
-  patient_id: Joi.number().required().messages({
-    'number.base': 'Patient ID is required',
+  appointment_id:             Joi.number().integer().optional().allow(null, ''),
+  patient_id:                 Joi.number().integer().required().messages({
+    'number.base':  'Patient ID must be a number',
+    'any.required': 'Patient is required',
   }),
-  doctor_id: Joi.number().optional(),
-  consultation_date: Joi.date().optional().default(() => new Date()),
-  chief_complaint: Joi.string().required().messages({
+  doctor_id:                  Joi.number().integer().optional().allow(null, ''),
+  consultation_date:          Joi.string().optional().allow(null, ''),  // keep as string — SQLite TEXT
+  chief_complaint:            Joi.string().trim().required().messages({
     'string.empty': 'Chief complaint is required',
+    'any.required': 'Chief complaint is required',
   }),
-  history_of_present_illness: Joi.string().optional(),
-  past_medical_history: Joi.string().optional(),
-  medications: Joi.string().optional(),
-  allergies: Joi.string().optional(),
-  vital_signs_bp: Joi.string().optional(),
-  vital_signs_temp: Joi.string().optional(),
-  vital_signs_pulse: Joi.string().optional(),
-  vital_signs_respiration: Joi.string().optional(),
-  physical_examination: Joi.string().optional(),
-  diagnosis: Joi.string().required().messages({
+  history_of_present_illness: Joi.string().trim().optional().allow(null, ''),
+  past_medical_history:       Joi.string().trim().optional().allow(null, ''),
+  medications:                Joi.string().trim().optional().allow(null, ''),
+  allergies:                  Joi.string().trim().optional().allow(null, ''),
+  vital_signs_bp:             Joi.string().trim().optional().allow(null, ''),
+  vital_signs_temp:           Joi.string().trim().optional().allow(null, ''),
+  vital_signs_pulse:          Joi.string().trim().optional().allow(null, ''),
+  vital_signs_respiration:    Joi.string().trim().optional().allow(null, ''),
+  physical_examination:       Joi.string().trim().optional().allow(null, ''),
+  diagnosis:                  Joi.string().trim().required().messages({
     'string.empty': 'Diagnosis is required',
+    'any.required': 'Diagnosis is required',
   }),
-  diagnosis_icd: Joi.string().optional(),
-  treatment_plan: Joi.string().required().messages({
+  diagnosis_icd:              Joi.string().trim().optional().allow(null, ''),
+  treatment_plan:             Joi.string().trim().required().messages({
     'string.empty': 'Treatment plan is required',
+    'any.required': 'Treatment plan is required',
   }),
-  medications_prescribed: Joi.string().optional(),
-  procedures: Joi.string().optional(),
-  follow_up_date: Joi.date().optional(),
-  follow_up_notes: Joi.string().optional(),
-  referral_needed: Joi.number().optional().default(0),
-  referral_to: Joi.string().optional(),
-  notes: Joi.string().optional(),
-  status: Joi.string().valid('Draft', 'Completed', 'Signed', 'Reviewed').optional(),
-});
+  medications_prescribed:     Joi.string().trim().optional().allow(null, ''),
+  procedures:                 Joi.string().trim().optional().allow(null, ''),
+  follow_up_date:             Joi.string().optional().allow(null, ''),  // keep as string
+  follow_up_notes:            Joi.string().trim().optional().allow(null, ''),
+  referral_needed:            Joi.number().integer().optional().default(0),
+  referral_to:                Joi.string().trim().optional().allow(null, ''),
+  notes:                      Joi.string().trim().optional().allow(null, ''),
+  status:                     Joi.string().valid('Draft', 'Completed', 'Signed', 'Reviewed').optional().default('Draft'),
+}).options({ stripUnknown: true, convert: true });
 
-// ==========================================
-// Get All Consultations with Pagination
-// ==========================================
+// ── Helper: empty string → null for DB ───────────────────────────────────────
+const n = (v) => (v === '' || v === undefined) ? null : v;
+
+// ── GET /consultations — All with Pagination ──────────────────────────────────
 export const getAllConsultations = async (req, res) => {
   try {
     const { page = 1, limit = 10, patient_id = '', status = '' } = req.query;
     const offset = (page - 1) * limit;
 
-    console.log('📋 Getting consultations...');
-
     let whereClause = 'WHERE 1=1';
     let params = [];
+    if (patient_id) { whereClause += ' AND c.patient_id = ?'; params.push(patient_id); }
+    if (status)     { whereClause += ' AND c.status = ?';     params.push(status); }
 
-    if (patient_id) {
-      whereClause += ' AND c.patient_id = ?';
-      params.push(patient_id);
-    }
-
-    if (status) {
-      whereClause += ' AND c.status = ?';
-      params.push(status);
-    }
-
-    // Get total count
     const countResult = await query(
-      `SELECT COUNT(*) as total FROM consultations ${whereClause}`,
-      params
+      `SELECT COUNT(*) as total FROM consultations c ${whereClause}`, params
     );
-
     const total = countResult.rows[0]?.total || 0;
 
-    // Get paginated results
     const consultationsResult = await query(
       `SELECT c.*, p.first_name, p.last_name, p.phone
        FROM consultations c
@@ -83,16 +77,12 @@ export const getAllConsultations = async (req, res) => {
       [...params, limit, offset]
     );
 
-    const consultations = consultationsResult.rows || [];
-
-    console.log(`✅ Found ${consultations.length} consultations`);
-
     res.json({
-      consultations,
+      consultations: consultationsResult.rows || [],
       pagination: {
         total,
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page:       parseInt(page),
+        limit:      parseInt(limit),
         totalPages: Math.ceil(total / limit),
       },
     });
@@ -102,14 +92,10 @@ export const getAllConsultations = async (req, res) => {
   }
 };
 
-// ==========================================
-// Get Single Consultation
-// ==========================================
+// ── GET /consultations/:id ────────────────────────────────────────────────────
 export const getConsultationById = async (req, res) => {
   try {
     const { id } = req.params;
-
-    console.log(`📝 Getting consultation: ${id}`);
 
     const result = await query(
       `SELECT c.*, p.first_name, p.last_name, p.email, p.phone, p.blood_type, p.allergies
@@ -119,11 +105,9 @@ export const getConsultationById = async (req, res) => {
       [id]
     );
 
-    if (!result.rows || result.rows.length === 0) {
+    if (!result.rows?.length) {
       return res.status(404).json({ error: 'Consultation not found' });
     }
-
-    console.log('✅ Consultation found');
 
     res.json({ consultation: result.rows[0] });
   } catch (error) {
@@ -132,15 +116,11 @@ export const getConsultationById = async (req, res) => {
   }
 };
 
-// ==========================================
-// Get Patient Consultations
-// ==========================================
+// ── GET /consultations/patient/:patientId ─────────────────────────────────────
 export const getPatientConsultations = async (req, res) => {
   try {
     const { patientId } = req.params;
     const { limit = 10 } = req.query;
-
-    console.log(`📝 Getting consultations for patient: ${patientId}`);
 
     const result = await query(
       `SELECT c.*, p.first_name, p.last_name
@@ -152,56 +132,31 @@ export const getPatientConsultations = async (req, res) => {
       [patientId, limit]
     );
 
-    const consultations = result.rows || [];
-
-    console.log(`✅ Found ${consultations.length} consultations`);
-
-    res.json({ consultations });
+    res.json({ consultations: result.rows || [] });
   } catch (error) {
     console.error('❌ Error getting patient consultations:', error);
     res.status(500).json({ error: 'Failed to fetch consultations' });
   }
 };
 
-// ==========================================
-// Create Consultation
-// ==========================================
+// ── POST /consultations — Create ──────────────────────────────────────────────
 export const createConsultation = async (req, res) => {
   try {
     const { error, value } = consultationSchema.validate(req.body);
     if (error) {
       console.log('❌ Validation error:', error.message);
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({ error: error.details[0].message });
     }
 
-    console.log('➕ Creating consultation...');
-
     const {
-      appointment_id,
-      patient_id,
-      doctor_id,
-      consultation_date,
-      chief_complaint,
-      history_of_present_illness,
-      past_medical_history,
-      medications,
-      allergies,
-      vital_signs_bp,
-      vital_signs_temp,
-      vital_signs_pulse,
-      vital_signs_respiration,
-      physical_examination,
-      diagnosis,
-      diagnosis_icd,
-      treatment_plan,
-      medications_prescribed,
-      procedures,
-      follow_up_date,
-      follow_up_notes,
-      referral_needed,
-      referral_to,
-      notes,
-      status,
+      appointment_id, patient_id, doctor_id, consultation_date,
+      chief_complaint, history_of_present_illness, past_medical_history,
+      medications, allergies,
+      vital_signs_bp, vital_signs_temp, vital_signs_pulse, vital_signs_respiration,
+      physical_examination, diagnosis, diagnosis_icd, treatment_plan,
+      medications_prescribed, procedures,
+      follow_up_date, follow_up_notes, referral_needed, referral_to,
+      notes, status,
     } = value;
 
     const result = await query(
@@ -215,37 +170,36 @@ export const createConsultation = async (req, res) => {
         referral_to, notes, status, created_by
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        appointment_id || null,
+        n(appointment_id),
         patient_id,
-        doctor_id || null,
-        consultation_date,
+        n(doctor_id),
+        consultation_date || new Date().toISOString().split('T')[0],
         chief_complaint,
-        history_of_present_illness || null,
-        past_medical_history || null,
-        medications || null,
-        allergies || null,
-        vital_signs_bp || null,
-        vital_signs_temp || null,
-        vital_signs_pulse || null,
-        vital_signs_respiration || null,
-        physical_examination || null,
+        n(history_of_present_illness),
+        n(past_medical_history),
+        n(medications),
+        n(allergies),
+        n(vital_signs_bp),
+        n(vital_signs_temp),
+        n(vital_signs_pulse),
+        n(vital_signs_respiration),
+        n(physical_examination),
         diagnosis,
-        diagnosis_icd || null,
+        n(diagnosis_icd),
         treatment_plan,
-        medications_prescribed || null,
-        procedures || null,
-        follow_up_date || null,
-        follow_up_notes || null,
-        referral_needed || 0,
-        referral_to || null,
-        notes || null,
+        n(medications_prescribed),
+        n(procedures),
+        n(follow_up_date),
+        n(follow_up_notes),
+        referral_needed ?? 0,
+        n(referral_to),
+        n(notes),
         status || 'Draft',
         req.user.user_id,
       ]
     );
 
     console.log(`✅ Consultation created: ID ${result.lastID}`);
-
     res.status(201).json({
       message: 'Consultation created successfully',
       consultation_id: result.lastID,
@@ -256,56 +210,32 @@ export const createConsultation = async (req, res) => {
   }
 };
 
-// ==========================================
-// Update Consultation
-// ==========================================
+// ── PUT /consultations/:id — Update ──────────────────────────────────────────
 export const updateConsultation = async (req, res) => {
   try {
     const { id } = req.params;
     const { error, value } = consultationSchema.validate(req.body);
-
     if (error) {
       console.log('❌ Validation error:', error.message);
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({ error: error.details[0].message });
     }
 
-    console.log(`✏️ Updating consultation: ${id}`);
-
     const existing = await query(
-      'SELECT consultation_id FROM consultations WHERE consultation_id = ?',
-      [id]
+      'SELECT consultation_id FROM consultations WHERE consultation_id = ?', [id]
     );
-
-    if (!existing.rows || existing.rows.length === 0) {
+    if (!existing.rows?.length) {
       return res.status(404).json({ error: 'Consultation not found' });
     }
 
     const {
-      appointment_id,
-      patient_id,
-      doctor_id,
-      consultation_date,
-      chief_complaint,
-      history_of_present_illness,
-      past_medical_history,
-      medications,
-      allergies,
-      vital_signs_bp,
-      vital_signs_temp,
-      vital_signs_pulse,
-      vital_signs_respiration,
-      physical_examination,
-      diagnosis,
-      diagnosis_icd,
-      treatment_plan,
-      medications_prescribed,
-      procedures,
-      follow_up_date,
-      follow_up_notes,
-      referral_needed,
-      referral_to,
-      notes,
-      status,
+      appointment_id, patient_id, doctor_id, consultation_date,
+      chief_complaint, history_of_present_illness, past_medical_history,
+      medications, allergies,
+      vital_signs_bp, vital_signs_temp, vital_signs_pulse, vital_signs_respiration,
+      physical_examination, diagnosis, diagnosis_icd, treatment_plan,
+      medications_prescribed, procedures,
+      follow_up_date, follow_up_notes, referral_needed, referral_to,
+      notes, status,
     } = value;
 
     await query(
@@ -323,30 +253,30 @@ export const updateConsultation = async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
        WHERE consultation_id = ?`,
       [
-        appointment_id || null,
+        n(appointment_id),
         patient_id,
-        doctor_id || null,
-        consultation_date,
+        n(doctor_id),
+        consultation_date || new Date().toISOString().split('T')[0],
         chief_complaint,
-        history_of_present_illness || null,
-        past_medical_history || null,
-        medications || null,
-        allergies || null,
-        vital_signs_bp || null,
-        vital_signs_temp || null,
-        vital_signs_pulse || null,
-        vital_signs_respiration || null,
-        physical_examination || null,
+        n(history_of_present_illness),
+        n(past_medical_history),
+        n(medications),
+        n(allergies),
+        n(vital_signs_bp),
+        n(vital_signs_temp),
+        n(vital_signs_pulse),
+        n(vital_signs_respiration),
+        n(physical_examination),
         diagnosis,
-        diagnosis_icd || null,
+        n(diagnosis_icd),
         treatment_plan,
-        medications_prescribed || null,
-        procedures || null,
-        follow_up_date || null,
-        follow_up_notes || null,
-        referral_needed || 0,
-        referral_to || null,
-        notes || null,
+        n(medications_prescribed),
+        n(procedures),
+        n(follow_up_date),
+        n(follow_up_notes),
+        referral_needed ?? 0,
+        n(referral_to),
+        n(notes),
         status || 'Draft',
         req.user.user_id,
         id,
@@ -354,7 +284,6 @@ export const updateConsultation = async (req, res) => {
     );
 
     console.log(`✅ Consultation updated: ${id}`);
-
     res.json({ message: 'Consultation updated successfully', consultation_id: id });
   } catch (error) {
     console.error('❌ Error updating consultation:', error);
@@ -362,26 +291,17 @@ export const updateConsultation = async (req, res) => {
   }
 };
 
-// ==========================================
-// Delete Consultation (Soft Delete)
-// ==========================================
+// ── DELETE /consultations/:id ─────────────────────────────────────────────────
 export const deleteConsultation = async (req, res) => {
   try {
     const { id } = req.params;
-
-    console.log(`🗑️ Deleting consultation: ${id}`);
-
-    const result = await query(
-      `DELETE FROM consultations WHERE consultation_id = ?`,
-      [id]
-    );
+    const result = await query(`DELETE FROM consultations WHERE consultation_id = ?`, [id]);
 
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Consultation not found' });
     }
 
     console.log(`✅ Consultation deleted: ${id}`);
-
     res.json({ message: 'Consultation deleted successfully' });
   } catch (error) {
     console.error('❌ Error deleting consultation:', error);
@@ -389,47 +309,25 @@ export const deleteConsultation = async (req, res) => {
   }
 };
 
-// ==========================================
-// Get Consultation Statistics
-// ==========================================
+// ── GET /consultations/stats/overview ────────────────────────────────────────
 export const getConsultationStats = async (req, res) => {
   try {
-    console.log('📊 Getting consultation statistics');
+    const [totalRes, statusRes, referralRes, monthRes] = await Promise.all([
+      query('SELECT COUNT(*) as total FROM consultations'),
+      query('SELECT status, COUNT(*) as count FROM consultations GROUP BY status'),
+      query('SELECT COUNT(*) as total FROM consultations WHERE referral_needed = 1'),
+      query(`SELECT COUNT(*) as total FROM consultations WHERE strftime('%Y-%m', consultation_date) = strftime('%Y-%m', 'now')`),
+    ]);
 
-    const stats = {};
+    const by_status = {};
+    statusRes.rows?.forEach(r => { by_status[r.status] = r.count; });
 
-    // Total consultations
-    const totalResult = await query('SELECT COUNT(*) as total FROM consultations');
-    stats.total = totalResult.rows[0]?.total || 0;
-
-    // By status
-    const statusResult = await query(`
-      SELECT status, COUNT(*) as count
-      FROM consultations
-      GROUP BY status
-    `);
-
-    stats.by_status = {};
-    statusResult.rows?.forEach(row => {
-      stats.by_status[row.status] = row.count;
+    res.json({
+      total:            totalRes.rows[0]?.total   || 0,
+      by_status,
+      referrals_needed: referralRes.rows[0]?.total || 0,
+      this_month:       monthRes.rows[0]?.total    || 0,
     });
-
-    // Referrals needed
-    const referralResult = await query(
-      'SELECT COUNT(*) as total FROM consultations WHERE referral_needed = 1'
-    );
-    stats.referrals_needed = referralResult.rows[0]?.total || 0;
-
-    // This month
-    const monthResult = await query(
-      `SELECT COUNT(*) as total FROM consultations
-       WHERE strftime('%Y-%m', consultation_date) = strftime('%Y-%m', 'now')`
-    );
-    stats.this_month = monthResult.rows[0]?.total || 0;
-
-    console.log('✅ Statistics retrieved:', stats);
-
-    res.json(stats);
   } catch (error) {
     console.error('❌ Error getting statistics:', error);
     res.status(500).json({ error: 'Failed to fetch statistics' });
