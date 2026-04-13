@@ -379,3 +379,66 @@ export const getPatientStats = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch statistics' });
   }
 };
+
+// ── GET /patients/me ──────────────────────────────────────────────────────────
+export const getMyProfile = async (req, res) => {
+  try {
+    // Find the patient record linked to the logged-in user
+    const result = await query(
+      `SELECT p.*, u.email, u.username, u.full_name
+       FROM patients p
+       JOIN users u ON p.user_id = u.user_id
+       WHERE p.user_id = ? AND p.is_active = 1`,
+      [req.user.user_id]
+    );
+ 
+    if (!result.rows?.length) {
+      return res.status(404).json({ error: 'Patient profile not found' });
+    }
+ 
+    res.json({ patient: result.rows[0] });
+  } catch (error) {
+    console.error('❌ getMyProfile error:', error);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+};
+ 
+// ── PUT /patients/me ──────────────────────────────────────────────────────────
+// Patients can update only safe demographic fields — not medical records
+export const updateMyProfile = async (req, res) => {
+  try {
+    const allowed = [
+      'phone', 'address', 'city', 'state',
+      'emergency_contact_name', 'emergency_contact_phone',
+      'emergency_contact_relationship',
+    ];
+ 
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+ 
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+ 
+    const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+    const values = [...Object.values(updates), req.user.user_id];
+ 
+    await query(
+      `UPDATE patients SET ${setClauses}, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = ?`,
+      values
+    );
+ 
+    const result = await query(
+      'SELECT * FROM patients WHERE user_id = ?',
+      [req.user.user_id]
+    );
+ 
+    res.json({ message: 'Profile updated', patient: result.rows[0] });
+  } catch (error) {
+    console.error('❌ updateMyProfile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+};

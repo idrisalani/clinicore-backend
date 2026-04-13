@@ -56,4 +56,8 @@ router.put('/:id', updatePatient);
 // Delete patient (soft delete)
 router.delete('/:id', deletePatient);
 
+// Patient self-service — must be before /:id to avoid param conflict
+router.get('/me',     authenticate, getMyProfile);
+router.put('/me',     authenticate, updateMyProfile);
+
 export default router;
