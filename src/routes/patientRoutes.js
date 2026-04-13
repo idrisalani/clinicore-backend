@@ -8,6 +8,8 @@ import {
   searchPatients,
   getPatientMedicalHistory,
   getPatientStats,
+  getMyProfile,
+  updateMyProfile,
 } from '../controllers/patientController.js';
 import { authenticate } from '../middleware/auth.js';
 
@@ -16,48 +18,21 @@ const router = express.Router();
 // All patient routes require authentication
 router.use(authenticate);
 
-// ==========================================
-// GET Endpoints
-// ==========================================
+// ── Self-service (MUST be before /:id to avoid param conflict) ───────────────
+router.get('/me', getMyProfile);
+router.put('/me', updateMyProfile);
 
-// Get all patients with pagination & search
-router.get('/', getAllPatients);
-
-// Get patient statistics
+// ── Stats & search (also before /:id) ────────────────────────────────────────
 router.get('/stats/overview', getPatientStats);
+router.get('/search',         searchPatients);
 
-// Search patients
-router.get('/search', searchPatients);
+// ── CRUD ─────────────────────────────────────────────────────────────────────
+router.get('/',    getAllPatients);
+router.post('/',   createPatient);
 
-// Get patient by ID with related data
-router.get('/:id', getPatientById);
-
-// Get patient medical history
-router.get('/:id/medical-history', getPatientMedicalHistory);
-
-// ==========================================
-// POST Endpoints
-// ==========================================
-
-// Create new patient
-router.post('/', createPatient);
-
-// ==========================================
-// PUT Endpoints
-// ==========================================
-
-// Update patient
-router.put('/:id', updatePatient);
-
-// ==========================================
-// DELETE Endpoints
-// ==========================================
-
-// Delete patient (soft delete)
-router.delete('/:id', deletePatient);
-
-// Patient self-service — must be before /:id to avoid param conflict
-router.get('/me',     authenticate, getMyProfile);
-router.put('/me',     authenticate, updateMyProfile);
+router.get('/:id',                   getPatientById);
+router.get('/:id/medical-history',   getPatientMedicalHistory);
+router.put('/:id',                   updatePatient);
+router.delete('/:id',                deletePatient);
 
 export default router;
