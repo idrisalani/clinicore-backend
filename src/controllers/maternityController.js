@@ -211,8 +211,8 @@ export const updateCase = async (req, res) => {
 
     await query(
       `UPDATE maternity_cases SET
-        lmp_date = COALESCE(?, lmp_date),
-        edd      = COALESCE(?, edd),
+        lmp_date       = COALESCE(?, lmp_date),
+        edd            = COALESCE(?, edd),
         edd_by_scan    = COALESCE(?, edd_by_scan),
         risk_level     = COALESCE(?, risk_level),
         risk_factors   = COALESCE(?, risk_factors),
@@ -381,7 +381,6 @@ export const recordDelivery = async (req, res) => {
     );
     if (!maternityCase) return res.status(404).json({ error: 'Case not found' });
 
-    // Check not already delivered
     const existingDelivery = await getOne(
       'SELECT delivery_id FROM delivery_records WHERE case_id = ?', [case_id]
     );
@@ -428,7 +427,6 @@ export const recordDelivery = async (req, res) => {
       ]
     );
 
-    // Close the maternity case
     await query(
       `UPDATE maternity_cases SET
          status = 'Delivered', outcome = ?, updated_by = ?,
@@ -463,27 +461,27 @@ export const updateDelivery = async (req, res) => {
 
     await query(
       `UPDATE delivery_records SET
-        delivery_date   = COALESCE(?, delivery_date),
-        delivery_time   = COALESCE(?, delivery_time),
-        mode_of_delivery= COALESCE(?, mode_of_delivery),
-        outcome         = COALESCE(?, outcome),
-        complications   = COALESCE(?, complications),
-        blood_loss_ml   = COALESCE(?, blood_loss_ml),
-        newborn_sex     = COALESCE(?, newborn_sex),
-        birth_weight_kg = COALESCE(?, birth_weight_kg),
-        apgar_1min      = COALESCE(?, apgar_1min),
-        apgar_5min      = COALESCE(?, apgar_5min),
-        apgar_10min     = COALESCE(?, apgar_10min),
+        delivery_date        = COALESCE(?, delivery_date),
+        delivery_time        = COALESCE(?, delivery_time),
+        mode_of_delivery     = COALESCE(?, mode_of_delivery),
+        outcome              = COALESCE(?, outcome),
+        complications        = COALESCE(?, complications),
+        blood_loss_ml        = COALESCE(?, blood_loss_ml),
+        newborn_sex          = COALESCE(?, newborn_sex),
+        birth_weight_kg      = COALESCE(?, birth_weight_kg),
+        apgar_1min           = COALESCE(?, apgar_1min),
+        apgar_5min           = COALESCE(?, apgar_5min),
+        apgar_10min          = COALESCE(?, apgar_10min),
         resuscitation_needed = COALESCE(?, resuscitation_needed),
-        nicu_admission  = COALESCE(?, nicu_admission),
-        newborn_notes   = COALESCE(?, newborn_notes),
-        placenta_complete = COALESCE(?, placenta_complete),
-        episiotomy      = COALESCE(?, episiotomy),
-        blood_transfusion = COALESCE(?, blood_transfusion),
-        maternal_condition = COALESCE(?, maternal_condition),
-        discharge_date  = COALESCE(?, discharge_date),
-        postnatal_notes = COALESCE(?, postnatal_notes),
-        updated_at      = CURRENT_TIMESTAMP
+        nicu_admission       = COALESCE(?, nicu_admission),
+        newborn_notes        = COALESCE(?, newborn_notes),
+        placenta_complete    = COALESCE(?, placenta_complete),
+        episiotomy           = COALESCE(?, episiotomy),
+        blood_transfusion    = COALESCE(?, blood_transfusion),
+        maternal_condition   = COALESCE(?, maternal_condition),
+        discharge_date       = COALESCE(?, discharge_date),
+        postnatal_notes      = COALESCE(?, postnatal_notes),
+        updated_at           = CURRENT_TIMESTAMP
        WHERE delivery_id = ?`,
       [
         delivery_date || null, delivery_time || null, mode_of_delivery || null,

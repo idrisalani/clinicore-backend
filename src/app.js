@@ -24,6 +24,8 @@ import twoFactorRoutes   from './routes/twoFactorRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import barcodeRoutes from './routes/barcodeRoutes.js';
 import maternityRoutes from './routes/maternityRoutes.js';
+import telemedicineRoutes from './routes/telemedicineRoutes.js';
+
 
 const app = express();
 
@@ -112,6 +114,9 @@ app.use('/api/v1/barcode', barcodeRoutes);
 
 //Maternity routes
 app.use('/api/v1/maternity', maternityRoutes);
+
+//Telemedicine
+app.use('/api/v1/telemedicine', telemedicineRoutes);
 
 // ==========================================
 // Error Handling Middleware
