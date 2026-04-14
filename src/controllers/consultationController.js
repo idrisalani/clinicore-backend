@@ -5,6 +5,37 @@
 
 import { query } from '../config/database.js';
 import Joi from 'joi';
+import {
+  sendPrescriptionNotification,
+  logNotification,
+} from '../services/notificationService.js';
+
+// ── Notification trigger — prescription issued ────────────────────────────────
+const triggerPrescription = async (patientId, doctorId, medicationsPrescribed) => {
+  if (!medicationsPrescribed) return;
+  const [patRes, docRes] = await Promise.all([
+    query('SELECT first_name, last_name, phone, email FROM patients WHERE patient_id = ?', [patientId]),
+    query('SELECT full_name FROM users WHERE user_id = ?', [doctorId]),
+  ]);
+  const p = patRes.rows?.[0];
+  if (!p) return;
+  await sendPrescriptionNotification({
+    patientName:  `${p.first_name} ${p.last_name}`,
+    patientPhone: p.phone,
+    patientEmail: p.email,
+    medications:  medicationsPrescribed,
+    doctorName:   docRes.rows?.[0]?.full_name || 'your doctor',
+  });
+  await logNotification(query, {
+    patient_id:   patientId,
+    type:         'prescription',
+    channel:      p.phone && p.email ? 'both' : p.phone ? 'sms' : 'email',
+    recipient:    p.phone || p.email,
+    body:         `Prescription issued: ${medicationsPrescribed.slice(0, 80)}`,
+    status:       'sent',
+    reference_id: String(patientId),
+  });
+};
 
 // ── Validation Schema ─────────────────────────────────────────────────────────
 
@@ -204,6 +235,10 @@ export const createConsultation = async (req, res) => {
       message: 'Consultation created successfully',
       consultation_id: result.lastID,
     });
+
+    // Fire-and-forget — never blocks the response
+    triggerPrescription(patient_id, doctor_id || req.user.user_id, medications_prescribed)
+      .catch(e => console.warn('Prescription notification failed (non-critical):', e.message));
   } catch (error) {
     console.error('❌ Error creating consultation:', error);
     res.status(500).json({ error: 'Failed to create consultation' });

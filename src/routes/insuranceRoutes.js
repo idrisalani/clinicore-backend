@@ -1,6 +1,7 @@
 // ============================================
 // Insurance Routes
 // File: backend/src/routes/insuranceRoutes.js
+// Mount: app.use('/api/v1/insurance', insuranceRoutes)
 // ============================================
 
 import express from 'express';

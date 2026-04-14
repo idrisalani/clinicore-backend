@@ -46,10 +46,10 @@ const getResend = () => {
   return resendClient;
 };
 
-const CLINIC_NAME   = process.env.CLINIC_NAME   || 'CliniCore Healthcare';
-const FRONTEND_URL  = process.env.FRONTEND_URL  || 'https://clinicore-frontend-web.vercel.app';
-const FROM_EMAIL    = process.env.EMAIL_FROM     || `${CLINIC_NAME} <noreply@clinicore.ng>`;
-const FROM_PHONE    = process.env.TWILIO_PHONE_NUMBER;
+const CLINIC_NAME  = process.env.CLINIC_NAME  || 'CliniCore Healthcare';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://clinicore-frontend-web.vercel.app';
+const FROM_EMAIL   = process.env.EMAIL_FROM   || `${CLINIC_NAME} <noreply@clinicore.ng>`;
+const FROM_PHONE   = process.env.TWILIO_PHONE_NUMBER;
 
 // ── Normalize Nigerian phone numbers for Twilio ───────────────────────────────
 const normalizePhone = (phone) => {
@@ -102,6 +102,7 @@ export const sendEmail = async ({ to, subject, html, text }) => {
 };
 
 // ── Log notification to DB (for audit trail) ──────────────────────────────────
+// db is passed as first arg (from req.db in routes, or directly in controllers)
 export const logNotification = async (db, {
   user_id = null, patient_id = null, type, channel,
   recipient, subject = null, body, status, reference_id = null,
@@ -119,7 +120,7 @@ export const logNotification = async (db, {
 };
 
 // ============================================================
-// ── CLINICAL NOTIFICATION TEMPLATES ─────────────────────────
+// CLINICAL NOTIFICATION TEMPLATES
 // ============================================================
 
 // ── Appointment reminder ──────────────────────────────────────────────────────
@@ -132,7 +133,6 @@ export const sendAppointmentReminder = async ({
   });
   const results = {};
 
-  // SMS
   if (patientPhone) {
     results.sms = await sendSMS(
       patientPhone,
@@ -140,7 +140,6 @@ export const sendAppointmentReminder = async ({
     );
   }
 
-  // Email
   if (patientEmail) {
     results.email = await sendEmail({
       to:      patientEmail,
@@ -208,7 +207,7 @@ export const sendLabResultNotification = async ({
   return results;
 };
 
-// ── Invoice / payment ─────────────────────────────────────────────────────────
+// ── Invoice issued ────────────────────────────────────────────────────────────
 export const sendInvoiceNotification = async ({
   patientName, patientPhone, patientEmail,
   invoiceNumber, totalAmount, amountDue,
@@ -273,6 +272,41 @@ export const sendPaymentConfirmation = async ({
               <strong>Remaining Balance:</strong> ${fmt(remainingBalance)}
             </p>
           </div>
+        </div>`,
+    });
+  }
+  return results;
+};
+
+// ── Prescription issued ───────────────────────────────────────────────────────
+// Added — not in doc10 but useful trigger from consultationController
+export const sendPrescriptionNotification = async ({
+  patientName, patientPhone, patientEmail,
+  medications, doctorName,
+}) => {
+  const results = {};
+  if (patientPhone) {
+    results.sms = await sendSMS(
+      patientPhone,
+      `${patientName}, Dr ${doctorName} has prescribed: ${medications}. Collect from the pharmacy.`
+    );
+  }
+  if (patientEmail) {
+    results.email = await sendEmail({
+      to:      patientEmail,
+      subject: 'Prescription Issued',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+          <h2 style="color:#1E293B">Prescription Issued</h2>
+          <p style="color:#475569">Dear <strong>${patientName}</strong>,</p>
+          <p style="color:#475569">Dr <strong>${doctorName}</strong> has issued a prescription for you.</p>
+          <div style="background:#F0FDF9;border:1px solid #99F6E4;border-radius:8px;padding:16px;margin:20px 0">
+            <p style="margin:4px 0;color:#0F766E"><strong>Medications:</strong> ${medications}</p>
+          </div>
+          <p style="color:#475569">Please collect your medications from the pharmacy.</p>
+          <a href="${FRONTEND_URL}/login" style="display:inline-block;background:#0D9488;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">
+            View Portal
+          </a>
         </div>`,
     });
   }

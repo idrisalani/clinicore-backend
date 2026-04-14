@@ -12,7 +12,7 @@ import { query } from '../config/database.js';
 const router = express.Router();
 router.use(authenticate);
 
-// GET /notifications/log  — audit log (admin only)
+// GET /notifications/log — audit log (admin only)
 router.get('/log', authorize('admin'), async (req, res) => {
   try {
     const { page = 1, limit = 20, type, channel } = req.query;
@@ -42,22 +42,21 @@ router.get('/log', authorize('admin'), async (req, res) => {
   }
 });
 
-// POST /notifications/send/sms  — manual SMS (admin/receptionist)
+// POST /notifications/send/sms — manual SMS (admin/receptionist)
 router.post('/send/sms', authorize('admin', 'receptionist'), async (req, res) => {
   try {
     const { to, message, patient_id } = req.body;
     if (!to || !message) return res.status(400).json({ error: 'to and message are required' });
 
     const result = await sendSMS(to, message);
-    await logNotification(req.db, {
-      patient_id: patient_id || null,
-      user_id:    req.user.user_id,
-      type:       'manual',
-      channel:    'sms',
-      recipient:  to,
-      body:       message,
-      status:     result.success ? 'sent' : 'failed',
-    });
+    // logNotification uses db.run() — pass the db instance from req or use query directly
+    try {
+      await query(
+        `INSERT INTO notifications_log (user_id, patient_id, type, channel, recipient, body, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [req.user.user_id, patient_id || null, 'manual', 'sms', to, message, result.success ? 'sent' : 'failed']
+      );
+    } catch { /* non-critical */ }
 
     res.json(result);
   } catch (err) {
@@ -65,7 +64,7 @@ router.post('/send/sms', authorize('admin', 'receptionist'), async (req, res) =>
   }
 });
 
-// POST /notifications/send/email  — manual email (admin)
+// POST /notifications/send/email — manual email (admin)
 router.post('/send/email', authorize('admin'), async (req, res) => {
   try {
     const { to, subject, body, patient_id } = req.body;
@@ -73,16 +72,13 @@ router.post('/send/email', authorize('admin'), async (req, res) => {
       return res.status(400).json({ error: 'to, subject and body are required' });
 
     const result = await sendEmail({ to, subject, html: body });
-    await logNotification(req.db, {
-      patient_id: patient_id || null,
-      user_id:    req.user.user_id,
-      type:       'manual',
-      channel:    'email',
-      recipient:  to,
-      subject,
-      body,
-      status:     result.success ? 'sent' : 'failed',
-    });
+    try {
+      await query(
+        `INSERT INTO notifications_log (user_id, patient_id, type, channel, recipient, subject, body, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [req.user.user_id, patient_id || null, 'manual', 'email', to, subject, body, result.success ? 'sent' : 'failed']
+      );
+    } catch { /* non-critical */ }
 
     res.json(result);
   } catch (err) {
@@ -90,15 +86,11 @@ router.post('/send/email', authorize('admin'), async (req, res) => {
   }
 });
 
-// GET /notifications/stats  — delivery stats (admin)
+// GET /notifications/stats — delivery stats (admin)
 router.get('/stats', authorize('admin'), async (req, res) => {
   try {
     const stats = await query(`
-      SELECT
-        channel,
-        type,
-        status,
-        COUNT(*) as count
+      SELECT channel, type, status, COUNT(*) as count
       FROM notifications_log
       WHERE created_at >= date('now', '-30 days')
       GROUP BY channel, type, status

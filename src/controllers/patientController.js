@@ -1,444 +1,332 @@
+// ============================================
+// patientController.js
+// File: backend/src/controllers/patientController.js
+// ============================================
 import { query } from '../config/database.js';
-import bcrypt from 'bcryptjs';
 import Joi from 'joi';
-import { sendPortalCredentials, logNotification } from '../services/notificationService.js';
+import bcrypt from 'bcryptjs';
+import {
+  sendPortalCredentials,
+  logNotification,
+} from '../services/notificationService.js';
 
-// ==========================================
-// Validation Schemas
-// ==========================================
+const n = (v) => (v === '' || v === undefined) ? null : v;
 
+const getOne = async (sql, p = []) => (await query(sql, p)).rows?.[0] || null;
+const getAll = async (sql, p = []) => (await query(sql, p)).rows || [];
+
+// ── Validation ────────────────────────────────────────────────────────────────
 const patientSchema = Joi.object({
-  first_name: Joi.string().required().messages({ 'string.empty': 'First name is required' }),
-  last_name:  Joi.string().required().messages({ 'string.empty': 'Last name is required'  }),
-  email:      Joi.string().email().optional(),
-  phone:      Joi.string().required().messages({ 'string.empty': 'Phone number is required' }),
-  date_of_birth: Joi.date().required().messages({ 'date.base': 'Date of birth must be a valid date' }),
-  gender:         Joi.string().valid('Male', 'Female', 'Other').optional(),
-  address:        Joi.string().optional(),
-  city:           Joi.string().optional(),
-  state:          Joi.string().optional(),
-  zip_code:       Joi.string().optional(),
-  blood_type:     Joi.string().valid('O+','O-','A+','A-','B+','B-','AB+','AB-','Unknown').optional(),
-  allergies:                      Joi.string().optional(),
-  chronic_conditions:             Joi.string().optional(),
-  insurance_provider:             Joi.string().optional(),
-  insurance_policy_number:        Joi.string().optional(),
-  insurance_group_number:         Joi.string().optional(),
-  emergency_contact_name:         Joi.string().optional(),
-  emergency_contact_phone:        Joi.string().optional(),
-  emergency_contact_relationship: Joi.string().optional(),
-});
+  first_name:       Joi.string().trim().required(),
+  last_name:        Joi.string().trim().required(),
+  date_of_birth:    Joi.string().optional().allow(null, ''),
+  gender:           Joi.string().valid('Male','Female','Other').optional().allow(null, ''),
+  phone:            Joi.string().trim().required(),
+  email:            Joi.string().email().optional().allow(null, ''),
+  address:          Joi.string().optional().allow(null, ''),
+  state:            Joi.string().optional().allow(null, ''),
+  lga:              Joi.string().optional().allow(null, ''),
+  blood_type:       Joi.string().optional().allow(null, ''),
+  genotype:         Joi.string().optional().allow(null, ''),
+  allergies:        Joi.string().optional().allow(null, ''),
+  chronic_conditions:Joi.string().optional().allow(null, ''),
+  emergency_contact_name:  Joi.string().optional().allow(null, ''),
+  emergency_contact_phone: Joi.string().optional().allow(null, ''),
+  emergency_contact_relationship: Joi.string().optional().allow(null, ''),
+  insurance_provider:      Joi.string().optional().allow(null, ''),
+  insurance_policy_number: Joi.string().optional().allow(null, ''),
+  notes:            Joi.string().optional().allow(null, ''),
+}).options({ stripUnknown: true });
 
-// ==========================================
-// Helper: derive patient portal credentials
-// ==========================================
-const derivePortalCredentials = ({ last_name, phone, email }) => {
-  const loginEmail     = email?.trim()
-    ? email.trim().toLowerCase()
-    : `${phone.replace(/\D/g, '')}@clinicore.patient`;
-  const username       = `patient_${phone.replace(/\D/g, '')}`;
-  const namePart       = last_name.replace(/\s/g, '').substring(0, 4).toUpperCase();
-  const phonePart      = phone.replace(/\D/g, '').slice(-4);
-  const defaultPassword = `${namePart}${phonePart}`;
-  return { loginEmail, username, defaultPassword };
+// ── Generate patient number ───────────────────────────────────────────────────
+const generatePatientNumber = async () => {
+  const count = await getOne('SELECT COUNT(*) AS n FROM patients');
+  return `PT-${String((count?.n || 0) + 1).padStart(5, '0')}`;
 };
 
-// ==========================================
-// Get All Patients with Pagination & Search
-// ==========================================
+// ── Generate default portal password ─────────────────────────────────────────
+const generateDefaultPassword = (lastName, phone) => {
+  const part1 = lastName.replace(/[^a-zA-Z]/g, '').slice(0, 4).toLowerCase();
+  const part2 = phone.replace(/\D/g, '').slice(-4);
+  return `${part1}${part2}`;
+};
+
+// ── GET /patients ─────────────────────────────────────────────────────────────
 export const getAllPatients = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '' } = req.query;
+    const { page = 1, limit = 20, search = '', status } = req.query;
     const offset = (page - 1) * limit;
-    console.log(`📋 Getting patients - Page: ${page}, Limit: ${limit}, Search: "${search}"`);
-
-    let whereClause = 'WHERE is_active = 1';
-    let params = [];
+    let where = ['p.is_active = 1'];
+    const params = [];
     if (search) {
-      whereClause += ` AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?)`;
-      const searchTerm = `%${search}%`;
-      params = [searchTerm, searchTerm, searchTerm, searchTerm];
+      where.push(`(p.first_name LIKE ? OR p.last_name LIKE ? OR p.phone LIKE ? OR p.patient_number LIKE ?)`);
+      const s = `%${search}%`;
+      params.push(s, s, s, s);
     }
+    if (status) { where.push('p.status = ?'); params.push(status); }
 
-    const countResult = await query(`SELECT COUNT(*) as total FROM patients ${whereClause}`, params);
-    const total = countResult.rows[0]?.total || 0;
-
-    const patientsResult = await query(
-      `SELECT * FROM patients ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+    const w = `WHERE ${where.join(' AND ')}`;
+    const total = await getOne(`SELECT COUNT(*) AS n FROM patients p ${w}`, params);
+    const rows  = await getAll(
+      `SELECT p.*, u.email AS login_email
+       FROM patients p
+       LEFT JOIN users u ON p.user_id = u.user_id
+       ${w}
+       ORDER BY p.created_at DESC
+       LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
-    const patients = patientsResult.rows || [];
-    console.log(`✅ Found ${patients.length} patients out of ${total} total`);
-
     res.json({
-      patients,
-      pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / limit) },
+      patients: rows,
+      pagination: {
+        total: total?.n || 0, page: +page, limit: +limit,
+        totalPages: Math.ceil((total?.n || 0) / limit),
+      },
     });
-  } catch (error) {
-    console.error('❌ Error getting patients:', error);
-    res.status(500).json({ error: 'Failed to fetch patients' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 
-// ==========================================
-// Get Single Patient by ID
-// ==========================================
-export const getPatientById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`👤 Getting patient: ${id}`);
-
-    const patientResult = await query(
-      'SELECT * FROM patients WHERE patient_id = ? AND is_active = 1', [id]
-    );
-    if (!patientResult.rows || patientResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Patient not found' });
-    }
-
-    const patient = patientResult.rows[0];
-    const appointmentsResult = await query(
-      `SELECT * FROM appointments WHERE patient_id = ? AND appointment_date >= date('now') ORDER BY appointment_date ASC LIMIT 5`,
-      [id]
-    );
-    const historyResult = await query(
-      `SELECT * FROM medical_history WHERE patient_id = ? ORDER BY visit_date DESC LIMIT 10`, [id]
-    );
-    const medicationsResult = await query(
-      `SELECT * FROM medications WHERE patient_id = ? AND is_active = 1 ORDER BY start_date DESC`, [id]
-    );
-
-    console.log(`✅ Patient found: ${patient.first_name} ${patient.last_name}`);
-    res.json({
-      patient,
-      appointments:    appointmentsResult.rows || [],
-      medical_history: historyResult.rows      || [],
-      medications:     medicationsResult.rows  || [],
-    });
-  } catch (error) {
-    console.error('❌ Error getting patient:', error);
-    res.status(500).json({ error: 'Failed to fetch patient' });
-  }
-};
-
-// ==========================================
-// Create New Patient
-// ==========================================
-export const createPatient = async (req, res) => {
-  try {
-    const { error, value } = patientSchema.validate(req.body);
-    if (error) {
-      console.log('❌ Validation error:', error.message);
-      return res.status(400).json({ error: error.message });
-    }
-
-    const {
-      first_name, last_name, email, phone, date_of_birth, gender,
-      address, city, state, zip_code, blood_type, allergies,
-      chronic_conditions, insurance_provider, insurance_policy_number,
-      insurance_group_number, emergency_contact_name, emergency_contact_phone,
-      emergency_contact_relationship,
-    } = value;
-
-    console.log(`➕ Creating patient: ${first_name} ${last_name}`);
-
-    if (email) {
-      const existing = await query('SELECT patient_id FROM patients WHERE email = ?', [email]);
-      if (existing.rows && existing.rows.length > 0) {
-        return res.status(400).json({ error: 'Email already exists' });
-      }
-    }
-
-    // ── Derive + create portal credentials ───────────────────────────────────
-    const { loginEmail, username, defaultPassword } =
-      derivePortalCredentials({ first_name, last_name, phone, email });
-
-    let userId = null;
-    const existingUser = await query(
-      'SELECT user_id FROM users WHERE email = ? OR username = ?', [loginEmail, username]
-    );
-    if (existingUser.rows && existingUser.rows.length > 0) {
-      userId = existingUser.rows[0].user_id;
-      console.log(`ℹ  User account already exists for ${loginEmail} — linking`);
-    } else {
-      const passwordHash = await bcrypt.hash(defaultPassword, 10);
-      const userResult   = await query(
-        `INSERT INTO users (username, email, password_hash, full_name, phone, role, is_active)
-         VALUES (?, ?, ?, ?, ?, 'patient', 1)`,
-        [username, loginEmail, passwordHash, `${first_name} ${last_name}`, phone]
-      );
-      userId = userResult.lastID;
-      console.log(`✅ User account created: ID ${userId} (${loginEmail})`);
-    }
-
-    const result = await query(
-      `INSERT INTO patients (
-        user_id, first_name, last_name, email, phone, date_of_birth, gender,
-        address, city, state, zip_code, blood_type, allergies,
-        chronic_conditions, insurance_provider, insurance_policy_number,
-        insurance_group_number, emergency_contact_name, emergency_contact_phone,
-        emergency_contact_relationship, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        userId, first_name, last_name, email || null, phone, date_of_birth,
-        gender || null, address || null, city || null, state || null,
-        zip_code || null, blood_type || null, allergies || null,
-        chronic_conditions || null, insurance_provider || null,
-        insurance_policy_number || null, insurance_group_number || null,
-        emergency_contact_name || null, emergency_contact_phone || null,
-        emergency_contact_relationship || null, req.user.user_id,
-      ]
-    );
-
-    console.log(`✅ Patient created: ID ${result.lastID}`);
-
-    const portal_credentials = {
-      email:            loginEmail,
-      default_password: defaultPassword,
-      note: 'Give these to the patient so they can access their portal.',
-    };
-
-    // ── Fire-and-forget: send portal credentials via SMS + email ─────────────
-    sendPortalCredentials({
-      patientName:     `${first_name} ${last_name}`,
-      patientPhone:    phone,
-      patientEmail:    email || null,
-      loginEmail,
-      defaultPassword,
-    }).then(notifResult => {
-      const channel = notifResult.sms && notifResult.email ? 'both'
-        : notifResult.sms ? 'sms' : 'email';
-      logNotification(query, {
-        patient_id:  result.lastID,
-        type:        'portal_credentials',
-        channel,
-        recipient:   phone || loginEmail,
-        body:        'Portal credentials sent on registration',
-        status:      'sent',
-        reference_id:String(result.lastID),
-      });
-    }).catch(err => console.warn('Portal credentials notification failed (non-critical):', err.message));
-
-    res.status(201).json({
-      message:    'Patient created successfully',
-      patient_id: result.lastID,
-      patient:    { patient_id: result.lastID, user_id: userId, ...value },
-      portal_credentials,
-    });
-  } catch (error) {
-    console.error('❌ Error creating patient:', error);
-    res.status(500).json({ error: 'Failed to create patient', details: error.message });
-  }
-};
-
-// ==========================================
-// Update Patient
-// ==========================================
-export const updatePatient = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { error, value } = patientSchema.validate(req.body, { abortEarly: false });
-    if (error) return res.status(400).json({ error: error.message });
-
-    console.log(`✏️ Updating patient: ${id}`);
-
-    const existing = await query(
-      'SELECT patient_id FROM patients WHERE patient_id = ? AND is_active = 1', [id]
-    );
-    if (!existing.rows || existing.rows.length === 0) {
-      return res.status(404).json({ error: 'Patient not found' });
-    }
-
-    const {
-      first_name, last_name, email, phone, date_of_birth, gender,
-      address, city, state, zip_code, blood_type, allergies,
-      chronic_conditions, insurance_provider, insurance_policy_number,
-      insurance_group_number, emergency_contact_name, emergency_contact_phone,
-      emergency_contact_relationship,
-    } = value;
-
-    await query(
-      `UPDATE patients SET
-        first_name=?, last_name=?, email=?, phone=?, date_of_birth=?,
-        gender=?, address=?, city=?, state=?, zip_code=?,
-        blood_type=?, allergies=?, chronic_conditions=?,
-        insurance_provider=?, insurance_policy_number=?, insurance_group_number=?,
-        emergency_contact_name=?, emergency_contact_phone=?, emergency_contact_relationship=?,
-        updated_by=?, updated_at=CURRENT_TIMESTAMP
-       WHERE patient_id=?`,
-      [
-        first_name, last_name, email || null, phone, date_of_birth,
-        gender || null, address || null, city || null, state || null,
-        zip_code || null, blood_type || null, allergies || null,
-        chronic_conditions || null, insurance_provider || null,
-        insurance_policy_number || null, insurance_group_number || null,
-        emergency_contact_name || null, emergency_contact_phone || null,
-        emergency_contact_relationship || null,
-        req.user.user_id, id,
-      ]
-    );
-
-    console.log(`✅ Patient updated: ${id}`);
-    res.json({ message: 'Patient updated successfully', patient_id: id });
-  } catch (error) {
-    console.error('❌ Error updating patient:', error);
-    res.status(500).json({ error: 'Failed to update patient' });
-  }
-};
-
-// ==========================================
-// Delete Patient (Soft Delete)
-// ==========================================
-export const deletePatient = async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`🗑️ Deleting patient: ${id}`);
-
-    const result = await query(
-      'UPDATE patients SET is_active=0, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE patient_id=?',
-      [req.user.user_id, id]
-    );
-    if (result.changes === 0) return res.status(404).json({ error: 'Patient not found' });
-
-    console.log(`✅ Patient deleted: ${id}`);
-    res.json({ message: 'Patient deleted successfully' });
-  } catch (error) {
-    console.error('❌ Error deleting patient:', error);
-    res.status(500).json({ error: 'Failed to delete patient' });
-  }
-};
-
-// ==========================================
-// Search Patients
-// ==========================================
+// ── GET /patients/search ──────────────────────────────────────────────────────
 export const searchPatients = async (req, res) => {
   try {
-    const { q } = req.query;
-    if (!q || q.length < 2) return res.status(400).json({ error: 'Search query must be at least 2 characters' });
-
-    console.log(`🔍 Searching patients: "${q}"`);
-    const searchTerm = `%${q}%`;
-    const result = await query(
-      `SELECT patient_id, first_name, last_name, email, phone, date_of_birth
-       FROM patients WHERE is_active=1 AND (
-         first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?
-       ) ORDER BY first_name ASC LIMIT 20`,
-      [searchTerm, searchTerm, searchTerm, searchTerm]
+    const { q = '', limit = 10 } = req.query;
+    const s = `%${q}%`;
+    const rows = await getAll(
+      `SELECT patient_id, first_name, last_name, phone, email, patient_number, date_of_birth, gender
+       FROM patients
+       WHERE is_active = 1 AND (first_name LIKE ? OR last_name LIKE ? OR phone LIKE ? OR patient_number LIKE ?)
+       ORDER BY last_name, first_name
+       LIMIT ?`,
+      [s, s, s, s, limit]
     );
-
-    const patients = result.rows || [];
-    console.log(`✅ Found ${patients.length} matches`);
-    res.json({ patients });
-  } catch (error) {
-    console.error('❌ Error searching patients:', error);
-    res.status(500).json({ error: 'Failed to search patients' });
+    res.json({ patients: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 
-// ==========================================
-// Get Patient Medical History
-// ==========================================
-export const getPatientMedicalHistory = async (req, res) => {
+// ── GET /patients/:id ─────────────────────────────────────────────────────────
+export const getPatientById = async (req, res) => {
   try {
-    const { id } = req.params;
-    console.log(`📋 Getting medical history for patient: ${id}`);
-    const result = await query(
-      `SELECT * FROM medical_history WHERE patient_id=? ORDER BY visit_date DESC`, [id]
+    const patient = await getOne(
+      `SELECT p.*, u.email AS login_email, u.username
+       FROM patients p
+       LEFT JOIN users u ON p.user_id = u.user_id
+       WHERE p.patient_id = ? AND p.is_active = 1`,
+      [req.params.id]
     );
-    const history = result.rows || [];
-    console.log(`✅ Found ${history.length} records`);
-    res.json({ medical_history: history });
-  } catch (error) {
-    console.error('❌ Error getting medical history:', error);
-    res.status(500).json({ error: 'Failed to fetch medical history' });
-  }
-};
-
-// ==========================================
-// Get Patient Statistics
-// ==========================================
-export const getPatientStats = async (req, res) => {
-  try {
-    console.log('📊 Getting patient statistics');
-    const totalResult = await query('SELECT COUNT(*) as total FROM patients WHERE is_active=1');
-    const appointmentsResult = await query(
-      'SELECT COUNT(*) as total FROM appointments WHERE status="Scheduled" AND appointment_date>=date("now")'
-    );
-    const historyResult = await query(
-      'SELECT COUNT(*) as total FROM medical_history WHERE visit_date>=date("now","-30 days")'
-    );
-
-    const stats = {
-      total_patients:        totalResult.rows[0]?.total        || 0,
-      upcoming_appointments: appointmentsResult.rows[0]?.total || 0,
-      recent_visits:         historyResult.rows[0]?.total      || 0,
-    };
-    console.log(`✅ Stats retrieved:`, stats);
-    res.json(stats);
-  } catch (error) {
-    console.error('❌ Error getting stats:', error);
-    res.status(500).json({ error: 'Failed to fetch statistics' });
+    if (!patient) return res.status(404).json({ error: 'Patient not found' });
+    res.json({ patient });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 
 // ── GET /patients/me ──────────────────────────────────────────────────────────
 export const getMyProfile = async (req, res) => {
   try {
-    // Find the patient record linked to the logged-in user
-    const result = await query(
+    const patient = await getOne(
       `SELECT p.*, u.email, u.username, u.full_name
        FROM patients p
        JOIN users u ON p.user_id = u.user_id
        WHERE p.user_id = ? AND p.is_active = 1`,
       [req.user.user_id]
     );
- 
-    if (!result.rows?.length) {
-      return res.status(404).json({ error: 'Patient profile not found' });
-    }
- 
-    res.json({ patient: result.rows[0] });
-  } catch (error) {
-    console.error('❌ getMyProfile error:', error);
-    res.status(500).json({ error: 'Failed to fetch profile' });
+    if (!patient) return res.status(404).json({ error: 'Patient profile not found' });
+    res.json({ patient });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
- 
+
 // ── PUT /patients/me ──────────────────────────────────────────────────────────
-// Patients can update only safe demographic fields — not medical records
 export const updateMyProfile = async (req, res) => {
   try {
-    const allowed = [
-      'phone', 'address', 'city', 'state',
-      'emergency_contact_name', 'emergency_contact_phone',
-      'emergency_contact_relationship',
-    ];
- 
-    const updates = {};
-    for (const key of allowed) {
-      if (req.body[key] !== undefined) updates[key] = req.body[key];
-    }
- 
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: 'No valid fields to update' });
-    }
- 
-    const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-    const values = [...Object.values(updates), req.user.user_id];
- 
-    await query(
-      `UPDATE patients SET ${setClauses}, updated_at = CURRENT_TIMESTAMP
-       WHERE user_id = ?`,
-      values
-    );
- 
-    const result = await query(
-      'SELECT * FROM patients WHERE user_id = ?',
+    const { phone, address, state, lga, emergency_contact_name,
+            emergency_contact_phone, emergency_contact_relationship } = req.body;
+
+    const patient = await getOne(
+      'SELECT patient_id FROM patients WHERE user_id = ? AND is_active = 1',
       [req.user.user_id]
     );
- 
-    res.json({ message: 'Profile updated', patient: result.rows[0] });
-  } catch (error) {
-    console.error('❌ updateMyProfile error:', error);
-    res.status(500).json({ error: 'Failed to update profile' });
+    if (!patient) return res.status(404).json({ error: 'Patient profile not found' });
+
+    await query(
+      `UPDATE patients SET
+        phone = COALESCE(?, phone),
+        address = COALESCE(?, address),
+        state = COALESCE(?, state),
+        lga = COALESCE(?, lga),
+        emergency_contact_name = COALESCE(?, emergency_contact_name),
+        emergency_contact_phone = COALESCE(?, emergency_contact_phone),
+        emergency_contact_relationship = COALESCE(?, emergency_contact_relationship),
+        updated_at = CURRENT_TIMESTAMP
+       WHERE patient_id = ?`,
+      [
+        n(phone), n(address), n(state), n(lga),
+        n(emergency_contact_name), n(emergency_contact_phone),
+        n(emergency_contact_relationship), patient.patient_id,
+      ]
+    );
+    res.json({ message: 'Profile updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── POST /patients ────────────────────────────────────────────────────────────
+export const createPatient = async (req, res) => {
+  try {
+    const { error, value } = patientSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const {
+      first_name, last_name, date_of_birth, gender, phone, email,
+      address, state, lga, blood_type, genotype, allergies,
+      chronic_conditions, emergency_contact_name, emergency_contact_phone,
+      emergency_contact_relationship, insurance_provider,
+      insurance_policy_number, notes,
+    } = value;
+
+    const patientNumber   = await generatePatientNumber();
+    const defaultPassword = generateDefaultPassword(last_name, phone);
+    const hashedPassword  = await bcrypt.hash(defaultPassword, 10);
+    const loginEmail      = email || `${patientNumber.toLowerCase()}@clinicore.patient`;
+    const username        = patientNumber.toLowerCase();
+
+    // Create user account for portal access
+    const userResult = await query(
+      `INSERT INTO users (username, email, password_hash, full_name, role, is_active, created_at)
+       VALUES (?, ?, ?, ?, 'patient', 1, CURRENT_TIMESTAMP)`,
+      [username, loginEmail, hashedPassword, `${first_name} ${last_name}`]
+    );
+
+    const result = await query(
+      `INSERT INTO patients (
+        user_id, patient_number, first_name, last_name, date_of_birth, gender,
+        phone, email, address, state, lga, blood_type, genotype, allergies,
+        chronic_conditions, emergency_contact_name, emergency_contact_phone,
+        emergency_contact_relationship, insurance_provider, insurance_policy_number,
+        notes, is_active, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        userResult.lastID, patientNumber, first_name, last_name,
+        n(date_of_birth), n(gender), phone, n(email),
+        n(address), n(state), n(lga), n(blood_type), n(genotype),
+        n(allergies), n(chronic_conditions),
+        n(emergency_contact_name), n(emergency_contact_phone),
+        n(emergency_contact_relationship),
+        n(insurance_provider), n(insurance_policy_number),
+        n(notes), req.user.user_id,
+      ]
+    );
+
+    const portalCredentials = { email: loginEmail, password: defaultPassword };
+
+    console.log(`✅ Patient created: ${patientNumber}`);
+    res.status(201).json({
+      message:            'Patient created successfully',
+      patient_id:         result.lastID,
+      patient_number:     patientNumber,
+      portal_credentials: portalCredentials,
+    });
+
+    // Fire-and-forget — send portal login credentials
+    sendPortalCredentials({
+      patientName:     `${first_name} ${last_name}`,
+      patientPhone:    phone,
+      patientEmail:    email || null,
+      loginEmail,
+      defaultPassword,
+    }).then(() => logNotification(query, {
+      patient_id:   result.lastID,
+      type:         'portal_credentials',
+      channel:      phone && email ? 'both' : phone ? 'sms' : 'email',
+      recipient:    phone || loginEmail,
+      body:         'Portal credentials sent on registration',
+      status:       'sent',
+      reference_id: String(result.lastID),
+    })).catch(e => console.warn('Portal credentials notification failed (non-critical):', e.message));
+  } catch (err) {
+    console.error('createPatient error:', err);
+    res.status(500).json({ error: 'Failed to create patient' });
+  }
+};
+
+// ── PUT /patients/:id ─────────────────────────────────────────────────────────
+export const updatePatient = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error, value } = patientSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const existing = await getOne('SELECT patient_id FROM patients WHERE patient_id = ?', [id]);
+    if (!existing) return res.status(404).json({ error: 'Patient not found' });
+
+    const {
+      first_name, last_name, date_of_birth, gender, phone, email,
+      address, state, lga, blood_type, genotype, allergies,
+      chronic_conditions, emergency_contact_name, emergency_contact_phone,
+      emergency_contact_relationship, insurance_provider,
+      insurance_policy_number, notes,
+    } = value;
+
+    await query(
+      `UPDATE patients SET
+        first_name = ?, last_name = ?, date_of_birth = ?, gender = ?,
+        phone = ?, email = ?, address = ?, state = ?, lga = ?,
+        blood_type = ?, genotype = ?, allergies = ?, chronic_conditions = ?,
+        emergency_contact_name = ?, emergency_contact_phone = ?,
+        emergency_contact_relationship = ?,
+        insurance_provider = ?, insurance_policy_number = ?,
+        notes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE patient_id = ?`,
+      [
+        first_name, last_name, n(date_of_birth), n(gender),
+        phone, n(email), n(address), n(state), n(lga),
+        n(blood_type), n(genotype), n(allergies), n(chronic_conditions),
+        n(emergency_contact_name), n(emergency_contact_phone),
+        n(emergency_contact_relationship),
+        n(insurance_provider), n(insurance_policy_number),
+        n(notes), req.user.user_id, id,
+      ]
+    );
+    res.json({ message: 'Patient updated successfully', patient_id: id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── DELETE /patients/:id (soft delete) ────────────────────────────────────────
+export const deletePatient = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await getOne('SELECT patient_id FROM patients WHERE patient_id = ?', [id]);
+    if (!existing) return res.status(404).json({ error: 'Patient not found' });
+    await query(
+      'UPDATE patients SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE patient_id = ?', [id]
+    );
+    res.json({ message: 'Patient deactivated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── GET /patients/stats ───────────────────────────────────────────────────────
+export const getPatientStats = async (req, res) => {
+  try {
+    const stats = await getOne(`
+      SELECT
+        COUNT(*)                                                     AS total,
+        SUM(CASE WHEN gender = 'Male'   THEN 1 ELSE 0 END)          AS male,
+        SUM(CASE WHEN gender = 'Female' THEN 1 ELSE 0 END)          AS female,
+        SUM(CASE WHEN created_at >= date('now','-30 days') THEN 1 ELSE 0 END) AS new_this_month
+      FROM patients WHERE is_active = 1
+    `);
+    res.json(stats || {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
