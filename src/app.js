@@ -27,6 +27,7 @@ import maternityRoutes from './routes/maternityRoutes.js';
 import telemedicineRoutes from './routes/telemedicineRoutes.js';
 import symptomCheckerRoutes from './routes/symptomCheckerRoutes.js';
 import imagingRoutes from './routes/imagingRoutes.js';
+import bedRoutes from './routes/bedRoutes.js';
 
 const app = express();
 
@@ -127,6 +128,9 @@ app.use('/api/v1/symptom-checker', symptomCheckerRoutes);
 
 //Medical Imaging routes
 app.use('/api/v1/imaging', imagingRoutes);
+
+//Bed Management routes
+app.use('/api/v1/beds', bedRoutes);
 
 // ==========================================
 // Error Handling Middleware
