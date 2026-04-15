@@ -74,6 +74,7 @@ app.get('/api/v1', (req, res) => {
 // ==========================================
 
 app.get('/ping', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
+app.head('/ping', (req, res) => res.sendStatus(200)); // UptimeRobot sends HEAD
 
 // Admin routes
 app.use('/api/v1/admin', adminRoutes);

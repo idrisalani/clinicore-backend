@@ -333,3 +333,50 @@ export const getPatientStats = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// ── GET /patients/:id/medical-history ────────────────────────────────────────
+// Returns consultation history for a patient (used by patientRoutes.js)
+export const getPatientMedicalHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 20 } = req.query;
+
+    const patient = await getOne(
+      'SELECT patient_id FROM patients WHERE patient_id = ? AND is_active = 1', [id]
+    );
+    if (!patient) return res.status(404).json({ error: 'Patient not found' });
+
+    const consultations = await getAll(
+      `SELECT c.consultation_id, c.consultation_date, c.chief_complaint,
+              c.diagnosis, c.treatment_plan, c.medications_prescribed,
+              c.status, c.follow_up_date,
+              u.full_name AS doctor_name
+       FROM consultations c
+       LEFT JOIN users u ON c.doctor_id = u.user_id
+       WHERE c.patient_id = ?
+       ORDER BY c.consultation_date DESC
+       LIMIT ?`,
+      [id, limit]
+    );
+
+    const labOrders = await getAll(
+      `SELECT lo.lab_order_id, lo.test_name, lo.test_type, lo.status,
+              lo.ordered_date, lo.priority,
+              (SELECT COUNT(*) FROM lab_results WHERE lab_order_id = lo.lab_order_id) AS result_count
+       FROM lab_orders lo
+       WHERE lo.patient_id = ?
+       ORDER BY lo.ordered_date DESC
+       LIMIT ?`,
+      [id, limit]
+    );
+
+    res.json({
+      patient_id:    id,
+      consultations,
+      lab_orders:    labOrders,
+    });
+  } catch (err) {
+    console.error('getPatientMedicalHistory error:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
