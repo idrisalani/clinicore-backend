@@ -261,3 +261,52 @@ export const getAppointmentStats = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// ── GET /appointments/doctor/:doctorId/availability ───────────────────────────
+// Returns available 30-min slots for a doctor on a given date
+export const getDoctorAvailability = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: 'date query param is required' });
+
+    // Get booked slots for this doctor on this date
+    const booked = await query(
+      `SELECT appointment_time, duration_minutes
+       FROM appointments
+       WHERE doctor_id = ? AND appointment_date = ?
+         AND status NOT IN ('Cancelled','No-Show')
+       ORDER BY appointment_time ASC`,
+      [doctorId, date]
+    );
+    const bookedSlots = booked.rows || [];
+
+    // Generate 30-min slots from 08:00 to 17:00
+    const available = [];
+    for (let hour = 8; hour < 17; hour++) {
+      for (let min = 0; min < 60; min += 30) {
+        const timeStr = `${String(hour).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+        const slotStart = hour * 60 + min;
+
+        const isBooked = bookedSlots.some(slot => {
+          const [sh, sm]  = slot.appointment_time.split(':').map(Number);
+          const start     = sh * 60 + sm;
+          const end       = start + (slot.duration_minutes || 30);
+          return slotStart >= start && slotStart < end;
+        });
+
+        if (!isBooked) available.push(timeStr);
+      }
+    }
+
+    res.json({
+      date,
+      doctor_id:       doctorId,
+      available_slots: available,
+      booked_slots:    bookedSlots.map(s => s.appointment_time),
+    });
+  } catch (err) {
+    console.error('getDoctorAvailability error:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
