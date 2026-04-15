@@ -33,8 +33,9 @@ const patientSchema = Joi.object({
   emergency_contact_name:  Joi.string().optional().allow(null, ''),
   emergency_contact_phone: Joi.string().optional().allow(null, ''),
   emergency_contact_relationship: Joi.string().optional().allow(null, ''),
-  insurance_provider:      Joi.string().optional().allow(null, ''),
-  insurance_policy_number: Joi.string().optional().allow(null, ''),
+  insurance_provider:       Joi.string().optional().allow(null, ''),
+  insurance_policy_number:  Joi.string().optional().allow(null, ''),
+  insurance_group_number:   Joi.string().optional().allow(null, ''),
   notes:            Joi.string().optional().allow(null, ''),
 }).options({ stripUnknown: true });
 
@@ -187,7 +188,7 @@ export const createPatient = async (req, res) => {
       address, state, lga, blood_type, genotype, allergies,
       chronic_conditions, emergency_contact_name, emergency_contact_phone,
       emergency_contact_relationship, insurance_provider,
-      insurance_policy_number, notes,
+      insurance_policy_number, insurance_group_number, notes,
     } = value;
 
     const patientNumber   = await generatePatientNumber();
@@ -209,8 +210,8 @@ export const createPatient = async (req, res) => {
         phone, email, address, state, lga, blood_type, genotype, allergies,
         chronic_conditions, emergency_contact_name, emergency_contact_phone,
         emergency_contact_relationship, insurance_provider, insurance_policy_number,
-        notes, is_active, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        insurance_group_number, notes, is_active, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         userResult.lastID, patientNumber, first_name, last_name,
         n(date_of_birth), n(gender), phone, n(email),
@@ -219,7 +220,7 @@ export const createPatient = async (req, res) => {
         n(emergency_contact_name), n(emergency_contact_phone),
         n(emergency_contact_relationship),
         n(insurance_provider), n(insurance_policy_number),
-        n(notes), req.user.user_id,
+        n(insurance_group_number), n(notes), req.user.user_id,
       ]
     );
 
@@ -270,7 +271,7 @@ export const updatePatient = async (req, res) => {
       address, state, lga, blood_type, genotype, allergies,
       chronic_conditions, emergency_contact_name, emergency_contact_phone,
       emergency_contact_relationship, insurance_provider,
-      insurance_policy_number, notes,
+      insurance_policy_number, insurance_group_number, notes,
     } = value;
 
     await query(
@@ -281,6 +282,7 @@ export const updatePatient = async (req, res) => {
         emergency_contact_name = ?, emergency_contact_phone = ?,
         emergency_contact_relationship = ?,
         insurance_provider = ?, insurance_policy_number = ?,
+        insurance_group_number = ?,
         notes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
        WHERE patient_id = ?`,
       [
@@ -290,6 +292,7 @@ export const updatePatient = async (req, res) => {
         n(emergency_contact_name), n(emergency_contact_phone),
         n(emergency_contact_relationship),
         n(insurance_provider), n(insurance_policy_number),
+        n(insurance_group_number),
         n(notes), req.user.user_id, id,
       ]
     );

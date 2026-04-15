@@ -25,7 +25,8 @@ import notificationRoutes from './routes/notificationRoutes.js';
 import barcodeRoutes from './routes/barcodeRoutes.js';
 import maternityRoutes from './routes/maternityRoutes.js';
 import telemedicineRoutes from './routes/telemedicineRoutes.js';
-
+import symptomCheckerRoutes from './routes/symptomCheckerRoutes.js';
+import imagingRoutes from './routes/imagingRoutes.js';
 
 const app = express();
 
@@ -72,6 +73,8 @@ app.get('/api/v1', (req, res) => {
 // API Routes
 // ==========================================
 
+app.get('/ping', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
+
 // Admin routes
 app.use('/api/v1/admin', adminRoutes);
 
@@ -117,6 +120,12 @@ app.use('/api/v1/maternity', maternityRoutes);
 
 //Telemedicine
 app.use('/api/v1/telemedicine', telemedicineRoutes);
+
+//Symptom Checker routes
+app.use('/api/v1/symptom-checker', symptomCheckerRoutes);
+
+//Medical Imaging routes
+app.use('/api/v1/imaging', imagingRoutes);
 
 // ==========================================
 // Error Handling Middleware
