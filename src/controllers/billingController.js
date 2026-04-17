@@ -10,8 +10,7 @@ import {
   logNotification,
 } from '../services/notificationService.js';
 
-const n   = (v) => (v === '' || v === undefined) ? null : v;
-const now = () => new Date().toISOString();
+const n     = (v) => (v === '' || v === undefined) ? null : v;
 const today = () => new Date().toISOString().split('T')[0];
 
 const getOne = async (sql, p = []) => (await query(sql, p)).rows?.[0] || null;
@@ -77,30 +76,30 @@ const triggerPaymentConfirmation = async (invoiceId, patientId, amountPaid, rema
 
 // ── Validation ────────────────────────────────────────────────────────────────
 const invoiceSchema = Joi.object({
-  patient_id:          Joi.number().integer().required(),
-  consultation_id:     Joi.number().integer().optional().allow(null, ''),
-  invoice_date:        Joi.string().optional(),
-  due_date:            Joi.string().optional().allow(null, ''),
-  items:               Joi.array().items(Joi.object({
-    description:  Joi.string().required(),
-    quantity:     Joi.number().min(1).default(1),
-    unit_price:   Joi.number().min(0).required(),
-    category:     Joi.string().optional().allow(null, ''),
+  patient_id:              Joi.number().integer().required(),
+  consultation_id:         Joi.number().integer().optional().allow(null, ''),
+  invoice_date:            Joi.string().optional(),
+  due_date:                Joi.string().optional().allow(null, ''),
+  items: Joi.array().items(Joi.object({
+    description: Joi.string().required(),
+    quantity:    Joi.number().min(1).default(1),
+    unit_price:  Joi.number().min(0).required(),
+    category:    Joi.string().optional().allow(null, ''),
   })).min(1).required(),
-  discount_amount:     Joi.number().min(0).optional().default(0),
-  notes:               Joi.string().optional().allow(null, ''),
-  insurance_provider:  Joi.string().optional().allow(null, ''),
+  discount_amount:         Joi.number().min(0).optional().default(0),
+  notes:                   Joi.string().optional().allow(null, ''),
+  insurance_provider:      Joi.string().optional().allow(null, ''),
   insurance_policy_number: Joi.string().optional().allow(null, ''),
 });
 
 const paymentSchema = Joi.object({
-  invoice_id:      Joi.number().integer().required(),
-  patient_id:      Joi.number().integer().required(),
-  amount_paid:     Joi.number().min(0.01).required(),
-  payment_method:  Joi.string().valid('Cash','Card','Transfer','Insurance','Other').required(),
-  payment_date:    Joi.string().optional(),
-  reference_number:Joi.string().optional().allow(null, ''),
-  notes:           Joi.string().optional().allow(null, ''),
+  invoice_id:       Joi.number().integer().required(),
+  patient_id:       Joi.number().integer().required(),
+  amount_paid:      Joi.number().min(0.01).required(),
+  payment_method:   Joi.string().valid('Cash','Card','Transfer','Insurance','Other').required(),
+  payment_date:     Joi.string().optional(),
+  reference_number: Joi.string().optional().allow(null, ''),
+  notes:            Joi.string().optional().allow(null, ''),
 });
 
 // ── GET /billing/invoices ─────────────────────────────────────────────────────
@@ -118,8 +117,7 @@ export const getAllInvoices = async (req, res) => {
 
     const total = await getOne(`SELECT COUNT(*) AS n FROM invoices i ${w}`, params);
     const rows  = await getAll(
-      `SELECT i.*,
-              p.first_name, p.last_name, p.phone
+      `SELECT i.*, p.first_name, p.last_name, p.phone
        FROM invoices i
        JOIN patients p ON i.patient_id = p.patient_id
        ${w}
@@ -150,7 +148,9 @@ export const getInvoiceById = async (req, res) => {
     );
     if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
     const items    = await getAll('SELECT * FROM invoice_items WHERE invoice_id = ?', [req.params.id]);
-    const payments = await getAll('SELECT * FROM payments WHERE invoice_id = ? ORDER BY payment_date DESC', [req.params.id]);
+    const payments = await getAll(
+      'SELECT * FROM payments WHERE invoice_id = ? ORDER BY payment_date DESC', [req.params.id]
+    );
     res.json({ invoice, items, payments });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -168,11 +168,9 @@ export const createInvoice = async (req, res) => {
       discount_amount, notes, insurance_provider, insurance_policy_number,
     } = value;
 
-    // Generate invoice number
-    const countRes     = await getOne('SELECT COUNT(*) AS n FROM invoices');
+    const countRes      = await getOne('SELECT COUNT(*) AS n FROM invoices');
     const invoiceNumber = `INV-${new Date().getFullYear()}-${String((countRes?.n || 0) + 1).padStart(4, '0')}`;
 
-    // Calculate totals
     const subtotal    = items.reduce((s, i) => s + (i.quantity * i.unit_price), 0);
     const totalAmount = Math.max(0, subtotal - (discount_amount || 0));
 
@@ -180,7 +178,8 @@ export const createInvoice = async (req, res) => {
       `INSERT INTO invoices (
         patient_id, consultation_id, invoice_number, invoice_date, due_date,
         subtotal, discount_amount, total_amount, amount_paid, amount_due, status,
-        notes, insurance_provider, insurance_policy_number, created_by, created_at, updated_at
+        notes, insurance_provider, insurance_policy_number,
+        created_by, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'Issued', ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         patient_id, n(consultation_id), invoiceNumber,
@@ -191,13 +190,14 @@ export const createInvoice = async (req, res) => {
       ]
     );
 
-    // Insert line items
     for (const item of items) {
       await query(
         `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, total_price, category)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [result.lastID, item.description, item.quantity || 1, item.unit_price,
-         (item.quantity || 1) * item.unit_price, n(item.category)]
+        [
+          result.lastID, item.description, item.quantity || 1,
+          item.unit_price, (item.quantity || 1) * item.unit_price, n(item.category),
+        ]
       );
     }
 
@@ -209,134 +209,11 @@ export const createInvoice = async (req, res) => {
       total_amount:   totalAmount,
     });
 
-    // Fire-and-forget — notify patient invoice was issued
     triggerInvoiceNotification(result.lastID, patient_id)
       .catch(e => console.warn('Invoice notification failed (non-critical):', e.message));
   } catch (err) {
     console.error('createInvoice error:', err);
     res.status(500).json({ error: 'Failed to create invoice' });
-  }
-};
-
-// ── POST /billing/payments ────────────────────────────────────────────────────
-export const recordPayment = async (req, res) => {
-  try {
-    const { error, value } = paymentSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
-
-    const { invoice_id, patient_id, amount_paid, payment_method, payment_date, reference_number, notes } = value;
-
-    const invoice = await getOne('SELECT * FROM invoices WHERE invoice_id = ?', [invoice_id]);
-    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-
-    const newAmountPaid = (invoice.amount_paid || 0) + amount_paid;
-    const newAmountDue  = Math.max(0, invoice.total_amount - newAmountPaid);
-    const newStatus     = newAmountDue <= 0 ? 'Paid'
-                        : newAmountPaid > 0  ? 'Partially Paid'
-                        : 'Issued';
-
-    // Generate receipt number
-    const countRes     = await getOne('SELECT COUNT(*) AS n FROM payments');
-    const receiptNumber = `RCP-${new Date().getFullYear()}-${String((countRes?.n || 0) + 1).padStart(4, '0')}`;
-
-    const result = await query(
-      `INSERT INTO payments (
-        invoice_id, patient_id, payment_date, amount_paid,
-        payment_method, reference_number, notes, received_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-      [
-        invoice_id, patient_id, payment_date || today(),
-        amount_paid, payment_method, n(reference_number), n(notes), req.user.user_id,
-      ]
-    );
-
-    // Update invoice totals
-    await query(
-      `UPDATE invoices SET
-        amount_paid = ?, amount_due = ?, status = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE invoice_id = ?`,
-      [newAmountPaid, newAmountDue, newStatus, invoice_id]
-    );
-
-    console.log(`✅ Payment recorded: ${receiptNumber}`);
-    res.status(201).json({
-      message:        'Payment recorded successfully',
-      payment_id:     result.lastID,
-      receipt_number: receiptNumber,
-      amount_paid,
-      invoice_status: newStatus,
-      amount_due:     newAmountDue,
-    });
-
-    // Fire-and-forget — confirm payment to patient
-    triggerPaymentConfirmation(invoice_id, patient_id, amount_paid, newAmountDue)
-      .catch(e => console.warn('Payment notification failed (non-critical):', e.message));
-  } catch (err) {
-    console.error('recordPayment error:', err);
-    res.status(500).json({ error: 'Failed to record payment' });
-  }
-};
-
-// ── GET /billing/stats ────────────────────────────────────────────────────────
-export const getBillingStats = async (req, res) => {
-  try {
-    const [inv, pay] = await Promise.all([
-      getOne(`
-        SELECT
-          COUNT(*)                                                 AS total_invoices,
-          SUM(total_amount)                                        AS total_billed,
-          SUM(amount_paid)                                         AS total_collected,
-          SUM(amount_due)                                          AS total_outstanding,
-          SUM(CASE WHEN status = 'Paid'         THEN 1 ELSE 0 END) AS paid_count,
-          SUM(CASE WHEN status = 'Partially Paid'THEN 1 ELSE 0 END) AS partial_count,
-          SUM(CASE WHEN status = 'Overdue'       THEN 1 ELSE 0 END) AS overdue_count
-        FROM invoices`
-      ),
-      getOne(`
-        SELECT
-          COUNT(*)         AS total_payments,
-          SUM(amount_paid) AS total_received,
-          payment_method
-        FROM payments
-        WHERE payment_date >= date('now', '-30 days')`
-      ),
-    ]);
-    res.json({ invoices: inv || {}, payments: pay || {} });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// ── GET /billing/payments ─────────────────────────────────────────────────────
-export const getAllPayments = async (req, res) => {
-  try {
-    const { page = 1, limit = 20, patient_id, start_date, end_date } = req.query;
-    const offset = (page - 1) * limit;
-    let where = ['1=1'];
-    const params = [];
-    if (patient_id) { where.push('pay.patient_id = ?');   params.push(patient_id); }
-    if (start_date) { where.push('pay.payment_date >= ?');params.push(start_date); }
-    if (end_date)   { where.push('pay.payment_date <= ?');params.push(end_date);   }
-    const w = `WHERE ${where.join(' AND ')}`;
-    const total = await getOne(`SELECT COUNT(*) AS n FROM payments pay ${w}`, params);
-    const rows  = await getAll(
-      `SELECT pay.*,
-              p.first_name, p.last_name,
-              i.invoice_number
-       FROM payments pay
-       JOIN patients p ON pay.patient_id = p.patient_id
-       JOIN invoices i ON pay.invoice_id = i.invoice_id
-       ${w}
-       ORDER BY pay.payment_date DESC, pay.created_at DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
-    );
-    res.json({
-      payments: rows,
-      pagination: { total: total?.n || 0, page: +page, limit: +limit },
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 };
 
@@ -363,9 +240,8 @@ export const updateInvoice = async (req, res) => {
         updated_at              = CURRENT_TIMESTAMP
        WHERE invoice_id = ?`,
       [
-        n(status), n(notes), n(due_date),
-        n(discount_amount), n(insurance_provider),
-        n(insurance_policy_number), id,
+        n(status), n(notes), n(due_date), n(discount_amount),
+        n(insurance_provider), n(insurance_policy_number), id,
       ]
     );
     res.json({ message: 'Invoice updated', invoice_id: id });
@@ -383,6 +259,126 @@ export const deleteInvoice = async (req, res) => {
     if (inv.status === 'Paid') return res.status(400).json({ error: 'Cannot delete a paid invoice' });
     await query('DELETE FROM invoices WHERE invoice_id = ?', [id]);
     res.json({ message: 'Invoice deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ── POST /billing/payments ────────────────────────────────────────────────────
+export const recordPayment = async (req, res) => {
+  try {
+    const { error, value } = paymentSchema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const {
+      invoice_id, patient_id, amount_paid, payment_method,
+      payment_date, reference_number, notes,
+    } = value;
+
+    const invoice = await getOne('SELECT * FROM invoices WHERE invoice_id = ?', [invoice_id]);
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+
+    const newAmountPaid = (invoice.amount_paid || 0) + amount_paid;
+    const newAmountDue  = Math.max(0, invoice.total_amount - newAmountPaid);
+    const newStatus     = newAmountDue <= 0 ? 'Paid'
+                        : newAmountPaid > 0 ? 'Partially Paid'
+                        : 'Issued';
+
+    const countRes      = await getOne('SELECT COUNT(*) AS n FROM payments');
+    const receiptNumber = `RCP-${new Date().getFullYear()}-${String((countRes?.n || 0) + 1).padStart(4, '0')}`;
+
+    const result = await query(
+      `INSERT INTO payments (
+        invoice_id, patient_id, payment_date, amount_paid,
+        payment_method, reference_number, notes, received_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [
+        invoice_id, patient_id, payment_date || today(),
+        amount_paid, payment_method, n(reference_number), n(notes), req.user.user_id,
+      ]
+    );
+
+    await query(
+      `UPDATE invoices SET
+        amount_paid = ?, amount_due = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE invoice_id = ?`,
+      [newAmountPaid, newAmountDue, newStatus, invoice_id]
+    );
+
+    console.log(`✅ Payment recorded: ${receiptNumber}`);
+    res.status(201).json({
+      message:        'Payment recorded successfully',
+      payment_id:     result.lastID,
+      receipt_number: receiptNumber,
+      amount_paid,
+      invoice_status: newStatus,
+      amount_due:     newAmountDue,
+    });
+
+    triggerPaymentConfirmation(invoice_id, patient_id, amount_paid, newAmountDue)
+      .catch(e => console.warn('Payment notification failed (non-critical):', e.message));
+  } catch (err) {
+    console.error('recordPayment error:', err);
+    res.status(500).json({ error: 'Failed to record payment' });
+  }
+};
+
+// ── GET /billing/payments ─────────────────────────────────────────────────────
+// Exported as BOTH names — routes use 'getPayments', other code may use 'getAllPayments'
+export const getAllPayments = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, patient_id, start_date, end_date } = req.query;
+    const offset = (page - 1) * limit;
+    let where = ['1=1'];
+    const params = [];
+    if (patient_id) { where.push('pay.patient_id = ?');    params.push(patient_id); }
+    if (start_date) { where.push('pay.payment_date >= ?'); params.push(start_date); }
+    if (end_date)   { where.push('pay.payment_date <= ?'); params.push(end_date);   }
+    const w = `WHERE ${where.join(' AND ')}`;
+
+    const total = await getOne(`SELECT COUNT(*) AS n FROM payments pay ${w}`, params);
+    const rows  = await getAll(
+      `SELECT pay.*, p.first_name, p.last_name, i.invoice_number
+       FROM payments pay
+       JOIN patients p ON pay.patient_id = p.patient_id
+       JOIN invoices i ON pay.invoice_id = i.invoice_id
+       ${w}
+       ORDER BY pay.payment_date DESC, pay.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+    res.json({
+      payments: rows,
+      pagination: { total: total?.n || 0, page: +page, limit: +limit },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+// Alias — billingRoutes.js imports this name
+export const getPayments = getAllPayments;
+
+// ── GET /billing/stats ────────────────────────────────────────────────────────
+export const getBillingStats = async (req, res) => {
+  try {
+    const [inv, pay] = await Promise.all([
+      getOne(`
+        SELECT
+          COUNT(*)                                                      AS total_invoices,
+          SUM(total_amount)                                             AS total_billed,
+          SUM(amount_paid)                                              AS total_collected,
+          SUM(amount_due)                                               AS total_outstanding,
+          SUM(CASE WHEN status = 'Paid'          THEN 1 ELSE 0 END)    AS paid_count,
+          SUM(CASE WHEN status = 'Partially Paid' THEN 1 ELSE 0 END)   AS partial_count,
+          SUM(CASE WHEN status = 'Overdue'        THEN 1 ELSE 0 END)   AS overdue_count
+        FROM invoices`
+      ),
+      getOne(`
+        SELECT COUNT(*) AS total_payments, SUM(amount_paid) AS total_received
+        FROM payments WHERE payment_date >= date('now', '-30 days')`
+      ),
+    ]);
+    res.json({ invoices: inv || {}, payments: pay || {} });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -411,8 +407,10 @@ export const createService = async (req, res) => {
     const result = await query(
       `INSERT INTO services (service_name, service_code, category, description, base_price, is_active)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [service_name, n(service_code), n(category), n(description),
-       parseFloat(base_price), is_active !== undefined ? is_active : 1]
+      [
+        service_name, n(service_code), n(category), n(description),
+        parseFloat(base_price), is_active !== undefined ? is_active : 1,
+      ]
     );
     res.status(201).json({ message: 'Service created', service_id: result.lastID });
   } catch (err) {
@@ -428,19 +426,14 @@ export const getRevenueReport = async (req, res) => {
     if (period === 'daily') {
       groupBy = "strftime('%Y-%m-%d', payment_date)";
       label   = "strftime('%d %b', payment_date)";
-    } else if (period === 'weekly') {
-      groupBy = "strftime('%Y-W%W', payment_date)";
-      label   = groupBy;
     } else {
       groupBy = "strftime('%Y-%m', payment_date)";
       label   = "strftime('%b %Y', payment_date)";
     }
-
     const rows = await getAll(`
       SELECT ${groupBy} AS period, ${label} AS label,
              SUM(amount_paid) AS revenue, COUNT(*) AS payment_count
-      FROM payments
-      WHERE strftime('%Y', payment_date) = ?
+      FROM payments WHERE strftime('%Y', payment_date) = ?
       GROUP BY ${groupBy} ORDER BY period ASC
     `, [String(year)]);
 
@@ -459,33 +452,25 @@ export const getRevenueReport = async (req, res) => {
 // ── GET /billing/reports/by-service ──────────────────────────────────────────
 export const getRevenueByService = async (req, res) => {
   try {
-    const today    = new Date().toISOString().slice(0, 7);
+    const thisMonth = new Date().toISOString().slice(0, 7);
     const prevMonth = new Date(new Date().setMonth(new Date().getMonth()-1)).toISOString().slice(0, 7);
 
     const [byMethod, byStatus, topPatients, monthComparison] = await Promise.all([
-      getAll(`
-        SELECT payment_method, COUNT(*) AS count, SUM(amount_paid) AS total
-        FROM payments GROUP BY payment_method ORDER BY total DESC
-      `),
-      getAll(`
-        SELECT status, COUNT(*) AS count, SUM(total_amount) AS total_amount,
-               SUM(amount_paid) AS collected, SUM(amount_due) AS outstanding
-        FROM invoices GROUP BY status ORDER BY total_amount DESC
-      `),
-      getAll(`
-        SELECT p.first_name || ' ' || p.last_name AS patient_name, p.phone,
-               COUNT(DISTINCT i.invoice_id) AS invoices, SUM(pay.amount_paid) AS total_paid
-        FROM payments pay
-        JOIN invoices i ON pay.invoice_id = i.invoice_id
-        JOIN patients p ON i.patient_id = p.patient_id
-        GROUP BY p.patient_id ORDER BY total_paid DESC LIMIT 10
-      `),
-      getAll(`
-        SELECT strftime('%Y-%m', payment_date) AS month,
-               SUM(amount_paid) AS revenue, COUNT(*) AS payments
-        FROM payments WHERE strftime('%Y-%m', payment_date) IN (?, ?)
-        GROUP BY month
-      `, [today, prevMonth]),
+      getAll(`SELECT payment_method, COUNT(*) AS count, SUM(amount_paid) AS total
+              FROM payments GROUP BY payment_method ORDER BY total DESC`),
+      getAll(`SELECT status, COUNT(*) AS count, SUM(total_amount) AS total_amount,
+                     SUM(amount_paid) AS collected, SUM(amount_due) AS outstanding
+              FROM invoices GROUP BY status ORDER BY total_amount DESC`),
+      getAll(`SELECT p.first_name || ' ' || p.last_name AS patient_name, p.phone,
+                     COUNT(DISTINCT i.invoice_id) AS invoices, SUM(pay.amount_paid) AS total_paid
+              FROM payments pay
+              JOIN invoices i ON pay.invoice_id = i.invoice_id
+              JOIN patients p ON i.patient_id = p.patient_id
+              GROUP BY p.patient_id ORDER BY total_paid DESC LIMIT 10`),
+      getAll(`SELECT strftime('%Y-%m', payment_date) AS month,
+                     SUM(amount_paid) AS revenue, COUNT(*) AS payments
+              FROM payments WHERE strftime('%Y-%m', payment_date) IN (?, ?)
+              GROUP BY month`, [thisMonth, prevMonth]),
     ]);
 
     res.json({ byMethod, byStatus, topPatients, monthComparison });
@@ -497,7 +482,6 @@ export const getRevenueByService = async (req, res) => {
 // ── GET /billing/reports/outstanding ─────────────────────────────────────────
 export const getOutstandingReport = async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
     const outstanding = await getAll(`
       SELECT i.*, p.first_name, p.last_name, p.phone,
         CAST(julianday('now') - julianday(i.due_date) AS INTEGER) AS days_overdue
@@ -507,10 +491,10 @@ export const getOutstandingReport = async (req, res) => {
     `);
     const aging = await getOne(`
       SELECT
-        SUM(CASE WHEN julianday('now')-julianday(due_date) <= 30  THEN amount_due ELSE 0 END) AS current_30,
+        SUM(CASE WHEN julianday('now')-julianday(due_date) <= 30             THEN amount_due ELSE 0 END) AS current_30,
         SUM(CASE WHEN julianday('now')-julianday(due_date) BETWEEN 31 AND 60 THEN amount_due ELSE 0 END) AS days_31_60,
         SUM(CASE WHEN julianday('now')-julianday(due_date) BETWEEN 61 AND 90 THEN amount_due ELSE 0 END) AS days_61_90,
-        SUM(CASE WHEN julianday('now')-julianday(due_date) > 90   THEN amount_due ELSE 0 END) AS over_90,
+        SUM(CASE WHEN julianday('now')-julianday(due_date) > 90              THEN amount_due ELSE 0 END) AS over_90,
         SUM(amount_due) AS total_outstanding, COUNT(*) AS invoice_count
       FROM invoices WHERE status NOT IN ('Paid','Cancelled','Draft') AND amount_due > 0
     `);
@@ -523,12 +507,11 @@ export const getOutstandingReport = async (req, res) => {
 // ── GET /billing/reports/summary ──────────────────────────────────────────────
 export const getFinancialSummary = async (req, res) => {
   try {
-    const today        = new Date().toISOString().split('T')[0];
-    const startOfMonth = today.slice(0, 7) + '-01';
-    const startOfYear  = today.slice(0, 4) + '-01-01';
+    const startOfMonth = today().slice(0, 7) + '-01';
+    const startOfYear  = today().slice(0, 4) + '-01-01';
 
     const [daily, monthly, yearly, outstanding, byMethod] = await Promise.all([
-      getOne('SELECT SUM(amount_paid) AS total, COUNT(*) AS count FROM payments WHERE payment_date = ?', [today]),
+      getOne('SELECT SUM(amount_paid) AS total, COUNT(*) AS count FROM payments WHERE payment_date = ?', [today()]),
       getOne('SELECT SUM(amount_paid) AS total, COUNT(*) AS count FROM payments WHERE payment_date >= ?', [startOfMonth]),
       getOne('SELECT SUM(amount_paid) AS total, COUNT(*) AS count FROM payments WHERE payment_date >= ?', [startOfYear]),
       getOne("SELECT SUM(amount_due) AS total, COUNT(*) AS count FROM invoices WHERE status NOT IN ('Paid','Cancelled','Draft') AND amount_due > 0"),

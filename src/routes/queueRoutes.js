@@ -1,8 +1,7 @@
 // ============================================
-// Queue Routes
+// queueRoutes.js
 // File: backend/src/routes/queueRoutes.js
 // ============================================
-
 import express from 'express';
 import {
   getTodayQueue,
@@ -14,60 +13,28 @@ import {
   removeFromQueue,
   getPatientQueueHistory,
 } from '../controllers/queueController.js';
-import { authenticate } from '../middleware/auth.js';
-import { checkPermission, logActivity } from '../middleware/rbac.js';
+import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
-
-// All queue routes require authentication
 router.use(authenticate);
 
-// ── GET endpoints ─────────────────────────────────────────────────────────────
-router.get('/',
-  checkPermission('view_appointments'),
-  getTodayQueue
-);
+const clinical = authorize('admin', 'doctor', 'nurse', 'receptionist');
+const staff    = authorize('admin', 'doctor', 'nurse', 'receptionist');
 
-router.get('/next',
-  checkPermission('view_appointments'),
-  getNextPatient
-);
+// ── GET ───────────────────────────────────────────────────────────────────────
+router.get('/',                        clinical, getTodayQueue);
+router.get('/next',                    clinical, getNextPatient);
+router.get('/stats',                   clinical, getQueueStats);
+router.get('/patient/:patientId',      clinical, getPatientQueueHistory);
 
-router.get('/stats',
-  checkPermission('view_appointments'),
-  getQueueStats
-);
+// ── POST ──────────────────────────────────────────────────────────────────────
+router.post('/check-in',               staff,    checkInPatient);
 
-router.get('/patient/:patientId',
-  checkPermission('view_appointments'),
-  getPatientQueueHistory
-);
+// ── PUT ───────────────────────────────────────────────────────────────────────
+router.put('/:id/status',              staff,    updateQueueStatus);
+router.put('/:id',                     staff,    updateQueueEntry);
 
-// ── POST endpoints ────────────────────────────────────────────────────────────
-router.post('/check-in',
-  checkPermission('create_appointment'),
-  logActivity('CREATE', 'Queue'),
-  checkInPatient
-);
-
-// ── PUT endpoints ─────────────────────────────────────────────────────────────
-router.put('/:id/status',
-  checkPermission('edit_appointment'),
-  logActivity('UPDATE', 'Queue'),
-  updateQueueStatus
-);
-
-router.put('/:id',
-  checkPermission('edit_appointment'),
-  logActivity('UPDATE', 'Queue'),
-  updateQueueEntry
-);
-
-// ── DELETE endpoints ──────────────────────────────────────────────────────────
-router.delete('/:id',
-  checkPermission('delete_appointment'),
-  logActivity('DELETE', 'Queue'),
-  removeFromQueue
-);
+// ── DELETE ────────────────────────────────────────────────────────────────────
+router.delete('/:id',                  staff,    removeFromQueue);
 
 export default router;
