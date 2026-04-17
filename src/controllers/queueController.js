@@ -266,3 +266,34 @@ export const getPatientQueueHistory = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// ── Aliases — queueRoutes.js imports these names ──────────────────────────────
+export const getTodayQueue  = getQueue;    // routes: GET /queue
+export const checkInPatient = addToQueue;  // routes: POST /queue/check-in
+
+// ── GET /queue/next — Return next Waiting patient ─────────────────────────────
+export const getNextPatient = async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const { doctor_id } = req.query;
+    let where = ["date(q.check_in_time) = ?", "q.status = 'Waiting'"];
+    const params = [today];
+    if (doctor_id) { where.push('q.doctor_id = ?'); params.push(doctor_id); }
+
+    const next = await getOne(
+      `SELECT q.*,
+              p.first_name, p.last_name, p.phone,
+              u.full_name AS doctor_name
+       FROM queue q
+       JOIN patients p ON q.patient_id = p.patient_id
+       LEFT JOIN users u ON q.doctor_id = u.user_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY q.priority DESC, q.queue_number ASC
+       LIMIT 1`,
+      params
+    );
+    res.json({ next_patient: next || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
