@@ -30,6 +30,8 @@ import imagingRoutes from './routes/imagingRoutes.js';
 import bedRoutes from './routes/bedRoutes.js';
 import supplyChainRoutes from './routes/supplyChainRoutes.js';
 import schedulingRoutes from './routes/schedulingRoutes.js';
+import fhirRoutes from './routes/fhirRoutes.js';
+import icd10Routes from './routes/icd10Routes.js';
 
 const app = express();
 
@@ -139,6 +141,12 @@ app.use('/api/v1/supply-chain', supplyChainRoutes);
 
 //Staff scheduling routes
 app.use('/api/v1/scheduling', schedulingRoutes);
+
+//FHIR routes
+app.use('/api/v1/fhir', fhirRoutes);
+
+//ICD 10 routes
+app.use('/api/v1/icd10', icd10Routes);
 
 // ==========================================
 // Error Handling Middleware
