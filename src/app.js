@@ -32,6 +32,8 @@ import supplyChainRoutes from './routes/supplyChainRoutes.js';
 import schedulingRoutes from './routes/schedulingRoutes.js';
 import fhirRoutes from './routes/fhirRoutes.js';
 import icd10Routes from './routes/icd10Routes.js';
+import { globalAuditMiddleware } from './middleware/auditMiddleware.js';
+import auditRoutes from './routes/auditRoutes.js';
 
 const app = express();
 
@@ -73,6 +75,8 @@ app.get('/api/v1', (req, res) => {
     },
   });
 });
+
+app.use(globalAuditMiddleware);
 
 // ==========================================
 // API Routes
@@ -147,6 +151,9 @@ app.use('/api/v1/fhir', fhirRoutes);
 
 //ICD 10 routes
 app.use('/api/v1/icd10', icd10Routes);
+
+// Mount routes
+app.use('/api/v1/audit', auditRoutes);
 
 // ==========================================
 // Error Handling Middleware
