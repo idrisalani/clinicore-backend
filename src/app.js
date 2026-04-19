@@ -34,7 +34,8 @@ import fhirRoutes from './routes/fhirRoutes.js';
 import icd10Routes from './routes/icd10Routes.js';
 import { globalAuditMiddleware } from './middleware/auditMiddleware.js';
 import auditRoutes from './routes/auditRoutes.js';
-
+import { facilityScope } from './middleware/facilityMiddleware.js';
+import facilityRoutes from './routes/facilityRoutes.js';
 
 const app = express();
 
@@ -78,6 +79,8 @@ app.get('/api/v1', (req, res) => {
 });
 
 app.use(globalAuditMiddleware);
+app.use(authenticate);
+app.use(facilityScope);
 
 // ==========================================
 // API Routes
@@ -152,8 +155,11 @@ app.use('/api/v1/fhir', fhirRoutes);
 //ICD 10 routes
 app.use('/api/v1/icd10', icd10Routes);
 
-// Mount routes
+//Mount routes
 app.use('/api/v1/audit', auditRoutes);
+
+//Facility routes
+app.use('/api/v1/facilities', facilityRoutes);
 
 // ==========================================
 // Error Handling Middleware
