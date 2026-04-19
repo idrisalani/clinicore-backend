@@ -7,7 +7,7 @@
 // ============================================
 
 import { query } from '../config/database.js';
-import { encrypt, hashForSearch, isEncrypted } from './src/utils/encryption.js';
+import { encrypt, hashForSearch, isEncrypted } from '../utils/encryption.js';
 
 export const registerMigrateRoute = (app) => {
 
