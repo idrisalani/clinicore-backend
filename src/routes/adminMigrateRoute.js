@@ -6,7 +6,7 @@
 //   GET https://clinicore-backend-71qa.onrender.com/admin-migrate?secret=YOUR_SECRET
 // ============================================
 
-import { query } from './src/config/database.js';
+import { query } from '../config/database.js';
 import { encrypt, hashForSearch, isEncrypted } from './src/utils/encryption.js';
 
 export const registerMigrateRoute = (app) => {
