@@ -34,7 +34,7 @@ import fhirRoutes from './routes/fhirRoutes.js';
 import icd10Routes from './routes/icd10Routes.js';
 import { globalAuditMiddleware } from './middleware/auditMiddleware.js';
 import auditRoutes from './routes/auditRoutes.js';
-import { registerMigrateRoute } from './adminMigrateRoute.js';
+import { registerMigrateRoute } from './routes/adminMigrateRoute.js';
 
 
 const app = express();
