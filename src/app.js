@@ -79,7 +79,7 @@ app.get('/api/v1', (req, res) => {
 });
 
 app.use(globalAuditMiddleware);
-app.use(authenticate);
+// app.use(authenticate);
 app.use(facilityScope);
 
 // ==========================================
