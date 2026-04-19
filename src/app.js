@@ -34,6 +34,8 @@ import fhirRoutes from './routes/fhirRoutes.js';
 import icd10Routes from './routes/icd10Routes.js';
 import { globalAuditMiddleware } from './middleware/auditMiddleware.js';
 import auditRoutes from './routes/auditRoutes.js';
+import { registerMigrateRoute } from './adminMigrateRoute.js';
+
 
 const app = express();
 
@@ -81,7 +83,7 @@ app.use(globalAuditMiddleware);
 // ==========================================
 // API Routes
 // ==========================================
-
+registerMigrateRoute(app); 
 app.get('/ping', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 app.head('/ping', (req, res) => res.sendStatus(200)); // UptimeRobot sends HEAD
 
