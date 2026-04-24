@@ -3,6 +3,7 @@
 // File: backend/src/controllers/patientController.js
 // ============================================
 import { query } from '../config/database.js';
+import db from '../database/connection.js';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
 import {
@@ -291,7 +292,7 @@ export const createPatient = async (req, res) => {
       patientEmail:    email || null,
       loginEmail,
       defaultPassword,
-    }).then(() => logNotification(query, {
+    }).then(() => logNotification(db, {
       patient_id:   result.lastID,
       type:         'portal_credentials',
       channel:      phone && email ? 'both' : phone ? 'sms' : 'email',

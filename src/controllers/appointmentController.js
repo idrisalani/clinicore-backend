@@ -3,11 +3,16 @@
 // File: backend/src/controllers/appointmentController.js
 // ============================================
 import { query } from '../config/database.js';
+import db from '../database/connection.js';
 import Joi from 'joi';
 import {
   sendAppointmentReminder,
   logNotification,
 } from '../services/notificationService.js';
+import { decryptFields, decryptRows, PHI_FIELDS } from '../utils/encryption.js';
+
+// PHI fields joined from patients table that need decryption
+const PATIENT_PHI = PHI_FIELDS.patients;
 
 const n = (v) => (v === '' || v === undefined) ? null : v;
 
@@ -35,8 +40,9 @@ const triggerAppointmentReminder = async (appointmentId) => {
      WHERE a.appointment_id = ?`,
     [appointmentId]
   );
-  const a = result.rows?.[0];
-  if (!a) return;
+  const raw = result.rows?.[0];
+  if (!raw) return;
+  const a = decryptFields(raw, PATIENT_PHI);  // decrypt phone/email before sending
   await sendAppointmentReminder({
     patientName:     `${a.first_name} ${a.last_name}`,
     patientPhone:    a.phone,
@@ -45,7 +51,7 @@ const triggerAppointmentReminder = async (appointmentId) => {
     appointmentDate: a.appointment_date,
     appointmentTime: a.appointment_time || 'as scheduled',
   });
-  await logNotification(query, {
+  await logNotification(db, {
     patient_id:   a.patient_id,
     type:         'appointment_reminder',
     channel:      a.phone && a.email ? 'both' : a.phone ? 'sms' : 'email',
@@ -91,7 +97,7 @@ export const getAllAppointments = async (req, res) => {
       [...params, limit, offset]
     );
     res.json({
-      appointments: rows.rows || [],
+      appointments: decryptRows(rows.rows || [], PATIENT_PHI),
       pagination: {
         total: total.rows[0]?.n || 0, page: +page,
         limit: +limit, totalPages: Math.ceil((total.rows[0]?.n || 0) / limit),
@@ -118,7 +124,7 @@ export const getAppointmentById = async (req, res) => {
     );
     if (!result.rows?.length)
       return res.status(404).json({ error: 'Appointment not found' });
-    res.json({ appointment: result.rows[0] });
+    res.json({ appointment: decryptFields(result.rows[0], PATIENT_PHI) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -141,7 +147,7 @@ export const getPatientAppointments = async (req, res) => {
        LIMIT ?`,
       [...params, limit]
     );
-    res.json({ appointments: rows.rows || [] });
+    res.json({ appointments: decryptRows(rows.rows || [], PATIENT_PHI) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

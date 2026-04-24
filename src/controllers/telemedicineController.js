@@ -47,12 +47,18 @@ export const createSession = async (req, res) => {
       `SELECT a.*, p.first_name, p.last_name, p.email AS patient_email, p.phone,
               u.full_name AS doctor_name, u.email AS doctor_email
        FROM appointments a
-       JOIN patients p ON a.patient_id = p.patient_id
-       JOIN users u    ON a.doctor_id  = u.user_id
+       JOIN patients p  ON a.patient_id = p.patient_id
+       LEFT JOIN users u ON a.doctor_id  = u.user_id
        WHERE a.appointment_id = ?`,
       [appointment_id]
     );
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+    // Decrypt PHI fields before using phone/email
+    const { decryptFields, PHI_FIELDS } = await import('../utils/encryption.js');
+    const decryptedAppt = decryptFields(appt, PHI_FIELDS.patients);
+    appt.phone        = decryptedAppt.phone;
+    appt.patient_email= decryptedAppt.email;
+    if (!appt.doctor_id) return res.status(400).json({ error: 'Please assign a doctor to this appointment before creating a video session.' });
 
     // Check for existing session
     const existing = await getOne(
