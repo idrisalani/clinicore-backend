@@ -3,7 +3,7 @@
 // File: backend/src/controllers/patientController.js
 // ============================================
 import { query } from '../config/database.js';
-import db from '../database/connection.js';
+import db from '../config/database.js';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
 import {
