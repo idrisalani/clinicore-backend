@@ -35,25 +35,40 @@ const patientSchema = Joi.object({
   phone:            Joi.string().trim().required(),
   email:            Joi.string().email().optional().allow(null, ''),
   address:          Joi.string().optional().allow(null, ''),
+  city:             Joi.string().optional().allow(null, ''),
   state:            Joi.string().optional().allow(null, ''),
-  lga:              Joi.string().optional().allow(null, ''),
+  zip_code:         Joi.string().optional().allow(null, ''),
+  country:          Joi.string().optional().allow(null, ''),
   blood_type:       Joi.string().optional().allow(null, ''),
-  genotype:         Joi.string().optional().allow(null, ''),
   allergies:        Joi.string().optional().allow(null, ''),
-  chronic_conditions:Joi.string().optional().allow(null, ''),
+  chronic_conditions: Joi.string().optional().allow(null, ''),
   emergency_contact_name:         Joi.string().optional().allow(null, ''),
   emergency_contact_phone:        Joi.string().optional().allow(null, ''),
   emergency_contact_relationship: Joi.string().optional().allow(null, ''),
   insurance_provider:             Joi.string().optional().allow(null, ''),
   insurance_policy_number:        Joi.string().optional().allow(null, ''),
   insurance_group_number:         Joi.string().optional().allow(null, ''),
-  notes:            Joi.string().optional().allow(null, ''),
 }).options({ stripUnknown: true });
 
 // ── Generate patient number ───────────────────────────────────────────────────
 const generatePatientNumber = async () => {
-  const count = await getOne('SELECT COUNT(*) AS n FROM patients');
-  return `PT-${String((count?.n || 0) + 1).padStart(5, '0')}`;
+  // Use max patient_id as the base (avoids COUNT gaps from deletions)
+  // Then scan upward until we find a username not yet taken in users table
+  const maxRow = await getOne('SELECT COALESCE(MAX(patient_id), 0) AS m FROM patients');
+  let attempt  = (maxRow?.m || 0) + 1;
+  const maxAttempts = attempt + 999;   // safety ceiling
+
+  while (attempt <= maxAttempts) {
+    const candidate = `PT-${String(attempt).padStart(5, '0')}`;
+    const username  = candidate.toLowerCase();          // pt-00006
+    const taken     = await getOne(
+      'SELECT 1 FROM users WHERE username = ?', [username]
+    );
+    if (!taken) return candidate;
+    attempt++;
+  }
+  // Absolute fallback: timestamp-based
+  return `PT-${Date.now().toString().slice(-5)}`;
 };
 
 // ── Generate default portal password ─────────────────────────────────────────
@@ -78,7 +93,7 @@ export const getAllPatients = async (req, res) => {
       where.push(`(
         p.first_name     LIKE ? OR
         p.last_name      LIKE ? OR
-        p.patient_number LIKE ? OR
+
         p.phone_hash     = ? OR
         p.email_hash     = ?
       )`);
@@ -119,12 +134,12 @@ export const searchPatients = async (req, res) => {
     const s = `%${q}%`;
     const rows = await getAll(
       `SELECT patient_id, first_name, last_name, phone, email,
-              patient_number, date_of_birth, gender
+
        FROM patients
        WHERE is_active = 1 AND (
          first_name     LIKE ? OR
          last_name      LIKE ? OR
-         patient_number LIKE ? OR
+
          phone_hash     = ? OR
          email_hash     = ?
        )
@@ -176,7 +191,7 @@ export const getMyProfile = async (req, res) => {
 export const updateMyProfile = async (req, res) => {
   try {
     const {
-      phone, address, state, lga,
+      phone, address, city, state, zip_code, country,
       emergency_contact_name, emergency_contact_phone,
       emergency_contact_relationship,
     } = req.body;
@@ -192,8 +207,10 @@ export const updateMyProfile = async (req, res) => {
         phone                          = COALESCE(?, phone),
         phone_hash                     = COALESCE(?, phone_hash),
         address                        = COALESCE(?, address),
+        city                           = COALESCE(?, city),
         state                          = COALESCE(?, state),
-        lga                            = COALESCE(?, lga),
+        zip_code                       = COALESCE(?, zip_code),
+        country                        = COALESCE(?, country),
         emergency_contact_name         = COALESCE(?, emergency_contact_name),
         emergency_contact_phone        = COALESCE(?, emergency_contact_phone),
         emergency_contact_relationship = COALESCE(?, emergency_contact_relationship),
@@ -203,7 +220,7 @@ export const updateMyProfile = async (req, res) => {
         phone ? encrypt(phone) : null,
         phone ? hashForSearch(phone) : null,
         address ? encrypt(address) : null,
-        n(state), n(lga),
+        n(city), n(state), n(zip_code), n(country),
         n(emergency_contact_name),
         emergency_contact_phone ? encrypt(emergency_contact_phone) : null,
         n(emergency_contact_relationship),
@@ -224,10 +241,11 @@ export const createPatient = async (req, res) => {
 
     const {
       first_name, last_name, date_of_birth, gender, phone, email,
-      address, state, lga, blood_type, genotype, allergies,
-      chronic_conditions, emergency_contact_name, emergency_contact_phone,
+      address, city, state, zip_code, country,
+      blood_type, allergies, chronic_conditions,
+      emergency_contact_name, emergency_contact_phone,
       emergency_contact_relationship, insurance_provider,
-      insurance_policy_number, insurance_group_number, notes,
+      insurance_policy_number, insurance_group_number,
     } = value;
 
     const patientNumber   = await generatePatientNumber();
@@ -237,40 +255,52 @@ export const createPatient = async (req, res) => {
     const username        = patientNumber.toLowerCase();
 
     // Create user account for portal access
-    const userResult = await query(
-      `INSERT INTO users (username, email, password_hash, full_name, role, is_active, created_at)
-       VALUES (?, ?, ?, ?, 'patient', 1, CURRENT_TIMESTAMP)`,
-      [username, loginEmail, hashedPassword, `${first_name} ${last_name}`]
+    // Check if a user with this email already exists (from previous failed attempt)
+    const existingUser = await getOne(
+      'SELECT user_id FROM users WHERE email = ? OR username = ?',
+      [loginEmail, username]
     );
+
+    let userResult;
+    if (existingUser) {
+      // Reuse the existing user account — just link to it
+      userResult = { lastID: existingUser.user_id };
+      console.log(`ℹ️  Reusing existing user account (user_id: ${existingUser.user_id})`);
+    } else {
+      userResult = await query(
+        `INSERT INTO users (username, email, password_hash, full_name, role, is_active, created_at)
+         VALUES (?, ?, ?, ?, 'patient', 1, CURRENT_TIMESTAMP)`,
+        [username, loginEmail, hashedPassword, `${first_name} ${last_name}`]
+      );
+    }
 
     // Encrypt PHI fields before INSERT
     const result = await query(
       `INSERT INTO patients (
-        user_id, patient_number, first_name, last_name, date_of_birth, gender,
+        user_id, first_name, last_name, date_of_birth, gender,
         phone, phone_hash,
         email, email_hash,
-        address, state, lga,
-        blood_type, genotype, allergies, chronic_conditions,
+        address, city, state, zip_code, country,
+        blood_type, allergies, chronic_conditions,
         emergency_contact_name, emergency_contact_phone,
         emergency_contact_relationship,
         insurance_provider, insurance_policy_number, insurance_group_number,
-        notes, is_active, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        is_active, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
-        userResult.lastID, patientNumber, first_name, last_name,
+        userResult.lastID, first_name, last_name,
         n(date_of_birth), n(gender),
         encrypt(phone),   hashForSearch(phone),
         email ? encrypt(email) : null,  email ? hashForSearch(email) : null,
         address ? encrypt(address) : null,
-        n(state), n(lga),
-        n(blood_type), n(genotype), n(allergies), n(chronic_conditions),
+        n(city), n(state), n(zip_code), n(country),
+        n(blood_type), n(allergies), n(chronic_conditions),
         n(emergency_contact_name),
         emergency_contact_phone ? encrypt(emergency_contact_phone) : null,
         n(emergency_contact_relationship),
         n(insurance_provider),
         insurance_policy_number ? encrypt(insurance_policy_number) : null,
         insurance_group_number  ? encrypt(insurance_group_number)  : null,
-        n(notes),
         req.user.user_id,
       ]
     );
@@ -319,10 +349,11 @@ export const updatePatient = async (req, res) => {
 
     const {
       first_name, last_name, date_of_birth, gender, phone, email,
-      address, state, lga, blood_type, genotype, allergies,
-      chronic_conditions, emergency_contact_name, emergency_contact_phone,
+      address, city, state, zip_code, country,
+      blood_type, allergies, chronic_conditions,
+      emergency_contact_name, emergency_contact_phone,
       emergency_contact_relationship, insurance_provider,
-      insurance_policy_number, insurance_group_number, notes,
+      insurance_policy_number, insurance_group_number,
     } = value;
 
     // Encrypt PHI fields before UPDATE
@@ -332,28 +363,28 @@ export const updatePatient = async (req, res) => {
         phone = ?, phone_hash = ?,
         email = ?, email_hash = ?,
         address = ?,
-        state = ?, lga = ?,
-        blood_type = ?, genotype = ?, allergies = ?, chronic_conditions = ?,
+        city = ?, state = ?, zip_code = ?, country = ?,
+        blood_type = ?, allergies = ?, chronic_conditions = ?,
         emergency_contact_name = ?, emergency_contact_phone = ?,
         emergency_contact_relationship = ?,
         insurance_provider = ?, insurance_policy_number = ?,
         insurance_group_number = ?,
-        notes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+        updated_by = ?, updated_at = CURRENT_TIMESTAMP
        WHERE patient_id = ?`,
       [
         first_name, last_name, n(date_of_birth), n(gender),
         encrypt(phone),   hashForSearch(phone),
         email ? encrypt(email) : null, email ? hashForSearch(email) : null,
         address ? encrypt(address) : null,
-        n(state), n(lga),
-        n(blood_type), n(genotype), n(allergies), n(chronic_conditions),
+        n(city), n(state), n(zip_code), n(country),
+        n(blood_type), n(allergies), n(chronic_conditions),
         n(emergency_contact_name),
         emergency_contact_phone ? encrypt(emergency_contact_phone) : null,
         n(emergency_contact_relationship),
         n(insurance_provider),
         insurance_policy_number ? encrypt(insurance_policy_number) : null,
         insurance_group_number  ? encrypt(insurance_group_number)  : null,
-        n(notes), req.user.user_id, id,
+        req.user.user_id, id,
       ]
     );
     res.json({ message: 'Patient updated successfully', patient_id: id });
