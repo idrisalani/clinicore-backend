@@ -36,6 +36,8 @@ import { globalAuditMiddleware } from './middleware/auditMiddleware.js';
 import auditRoutes from './routes/auditRoutes.js';
 import { facilityScope } from './middleware/facilityMiddleware.js';
 import facilityRoutes from './routes/facilityRoutes.js';
+import visitRoutes  from './routes/visitRoutes.js';
+import vitalsRoutes from './routes/vitalsRoutes.js';
 
 const app = express();
 
@@ -160,6 +162,12 @@ app.use('/api/v1/audit', auditRoutes);
 
 //Facility routes
 app.use('/api/v1/facilities', facilityRoutes);
+
+//Visits routes
+app.use('/api/v1/visits', visitRoutes);
+
+//Vitals routes
+app.use('/api/v1/vitals', vitalsRoutes);
 
 // ==========================================
 // Error Handling Middleware

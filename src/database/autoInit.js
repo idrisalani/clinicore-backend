@@ -772,3 +772,93 @@ export async function initDatabaseOnStartup() {
     return false;
   }
 }
+
+async function ensureVisitsTable() {
+  await safeCreate(`
+    CREATE TABLE IF NOT EXISTS visits (
+      visit_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id        INTEGER NOT NULL,
+      visit_date        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      visit_type        TEXT NOT NULL DEFAULT 'Outpatient',
+      status            TEXT NOT NULL DEFAULT 'Registered',
+      chief_complaint   TEXT,
+      triage_priority   TEXT DEFAULT 'Normal',
+      registered_by     INTEGER,
+      nurse_id          INTEGER,
+      doctor_id         INTEGER,
+      appointment_id    INTEGER,
+      admission_id      INTEGER,
+      discharge_date    DATETIME,
+      discharge_summary TEXT,
+      discharge_type    TEXT,
+      follow_up_date    DATE,
+      facility_id       INTEGER,
+      created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_visits_patient  ON visits(patient_id)');
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_visits_status   ON visits(status)');
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_visits_date     ON visits(visit_date)');
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_visits_doctor   ON visits(doctor_id)');
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_visits_facility ON visits(facility_id)');
+ 
+  await safeCreate(`
+    CREATE TABLE IF NOT EXISTS visit_status_log (
+      log_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+      visit_id    INTEGER NOT NULL,
+      from_status TEXT,
+      to_status   TEXT NOT NULL,
+      changed_by  INTEGER,
+      notes       TEXT,
+      changed_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_vsl_visit ON visit_status_log(visit_id)');
+  console.log('✅ visits + visit_status_log tables verified');
+}
+ 
+async function ensureVitalsTable() {
+  await safeCreate(`
+    CREATE TABLE IF NOT EXISTS vitals (
+      vital_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      visit_id             INTEGER NOT NULL,
+      patient_id           INTEGER NOT NULL,
+      blood_pressure_sys   INTEGER,
+      blood_pressure_dia   INTEGER,
+      pulse_rate           INTEGER,
+      temperature          REAL,
+      respiratory_rate     INTEGER,
+      oxygen_saturation    REAL,
+      weight               REAL,
+      height               REAL,
+      bmi                  REAL,
+      blood_glucose        REAL,
+      pain_score           INTEGER,
+      general_appearance   TEXT,
+      notes                TEXT,
+      recorded_by          INTEGER,
+      recorded_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+      facility_id          INTEGER
+    )
+  `);
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_vitals_visit   ON vitals(visit_id)');
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_vitals_patient ON vitals(patient_id)');
+  console.log('✅ vitals table verified');
+}
+ 
+async function ensureVisitColumns() {
+  // Add visit_id to all clinical tables
+  const cols = [
+    'ALTER TABLE consultations  ADD COLUMN visit_id INTEGER',
+    'ALTER TABLE lab_orders     ADD COLUMN visit_id INTEGER',
+    'ALTER TABLE lab_results    ADD COLUMN visit_id INTEGER',
+    'ALTER TABLE invoices       ADD COLUMN visit_id INTEGER',
+    'ALTER TABLE medications    ADD COLUMN visit_id INTEGER',
+    'ALTER TABLE appointments   ADD COLUMN visit_id INTEGER',
+    'ALTER TABLE bed_admissions ADD COLUMN visit_id INTEGER',
+    'ALTER TABLE medical_images ADD COLUMN visit_id INTEGER',
+  ];
+  for (const sql of cols) await safeAlter(sql);
+  console.log('✅ visit_id columns verified on clinical tables');
+}
