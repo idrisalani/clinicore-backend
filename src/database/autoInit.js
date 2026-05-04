@@ -862,3 +862,11 @@ async function ensureVisitColumns() {
   for (const sql of cols) await safeAlter(sql);
   console.log('✅ visit_id columns verified on clinical tables');
 }
+
+async function ensureAuditLogsColumns() {
+  // Add user_role column if missing — was in some controller inserts but not schema
+  await safeAlter('ALTER TABLE audit_logs ADD COLUMN user_role TEXT');
+  await safeAlter('ALTER TABLE audit_logs ADD COLUMN ip_address TEXT');
+  await safeAlter('ALTER TABLE audit_logs ADD COLUMN user_agent TEXT');
+  console.log('✅ audit_logs columns verified');
+}
