@@ -870,3 +870,48 @@ async function ensureAuditLogsColumns() {
   await safeAlter('ALTER TABLE audit_logs ADD COLUMN user_agent TEXT');
   console.log('✅ audit_logs columns verified');
 }
+
+async function ensureQueueTable() {
+  await safeCreate(`
+    CREATE TABLE IF NOT EXISTS queue (
+      queue_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id            INTEGER NOT NULL,
+      appointment_id        INTEGER,
+      doctor_id             INTEGER,
+      queue_number          INTEGER NOT NULL,
+      queue_date            TEXT NOT NULL,
+      status                TEXT NOT NULL DEFAULT 'Waiting',
+      priority              TEXT NOT NULL DEFAULT 'Normal',
+      reason_for_visit      TEXT,
+      notes                 TEXT,
+      created_by            INTEGER,
+      check_in_time         TEXT,
+      called_time           TEXT,
+      start_time            TEXT,
+      end_time              TEXT,
+      wait_minutes          INTEGER,
+      current_wait_minutes  INTEGER,
+      facility_id           INTEGER,
+      created_at            TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at            TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_queue_date      ON queue(queue_date)');
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_queue_patient   ON queue(patient_id)');
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_queue_status    ON queue(status)');
+  await safeCreate('CREATE INDEX IF NOT EXISTS idx_queue_date_stat ON queue(queue_date, status)');
+ 
+  // Add any missing columns to existing queue tables
+  await safeAlter('ALTER TABLE queue ADD COLUMN check_in_time        TEXT');
+  await safeAlter('ALTER TABLE queue ADD COLUMN called_time          TEXT');
+  await safeAlter('ALTER TABLE queue ADD COLUMN start_time           TEXT');
+  await safeAlter('ALTER TABLE queue ADD COLUMN end_time             TEXT');
+  await safeAlter('ALTER TABLE queue ADD COLUMN wait_minutes         INTEGER');
+  await safeAlter('ALTER TABLE queue ADD COLUMN current_wait_minutes INTEGER');
+  await safeAlter('ALTER TABLE queue ADD COLUMN facility_id          INTEGER');
+  await safeAlter('ALTER TABLE queue ADD COLUMN doctor_id            INTEGER');
+  await safeAlter('ALTER TABLE queue ADD COLUMN appointment_id       INTEGER');
+  await safeAlter('ALTER TABLE queue ADD COLUMN created_by           INTEGER');
+ 
+  console.log('✅ queue table verified');
+}
