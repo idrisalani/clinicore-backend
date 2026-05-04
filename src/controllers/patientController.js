@@ -134,18 +134,18 @@ export const searchPatients = async (req, res) => {
     const s = `%${q}%`;
     const rows = await getAll(
       `SELECT patient_id, first_name, last_name, phone, email,
-
+              date_of_birth, gender, blood_type, allergies,
+              city, state, address, is_active, created_at
        FROM patients
        WHERE is_active = 1 AND (
-         first_name     LIKE ? OR
-         last_name      LIKE ? OR
-
-         phone_hash     = ? OR
-         email_hash     = ?
+         first_name LIKE ? OR
+         last_name  LIKE ? OR
+         phone_hash = ? OR
+         email_hash = ?
        )
        ORDER BY last_name, first_name
        LIMIT ?`,
-      [s, s, s, searchHash, searchHash, limit]
+      [s, s, searchHash, searchHash, limit]
     );
     res.json({ patients: decryptRows(rows, PATIENT_PHI) });
   } catch (err) {
@@ -266,6 +266,18 @@ export const createPatient = async (req, res) => {
       // Reuse the existing user account — just link to it
       userResult = { lastID: existingUser.user_id };
       console.log(`ℹ️  Reusing existing user account (user_id: ${existingUser.user_id})`);
+
+      // Check if a patient record already exists for this user
+      const existingPatient = await getOne(
+        'SELECT patient_id FROM patients WHERE user_id = ? AND is_active = 1',
+        [existingUser.user_id]
+      );
+      if (existingPatient) {
+        return res.status(409).json({
+          error: 'A patient record already exists for this email address.',
+          patient_id: existingPatient.patient_id,
+        });
+      }
     } else {
       userResult = await query(
         `INSERT INTO users (username, email, password_hash, full_name, role, is_active, created_at)
