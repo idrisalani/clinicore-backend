@@ -3,10 +3,23 @@
 // File: backend/src/controllers/queueController.js
 // ============================================
 import { query } from '../config/database.js';
+import { decrypt } from '../utils/encryption.js';
 import {
   sendQueueCalledNotification,
   logNotification,
 } from '../services/notificationService.js';
+
+// Safely decrypt a single encrypted field
+const dec = (val) => {
+  if (!val || !String(val).startsWith('enc:')) return val;
+  try { return decrypt(val); } catch { return val; }
+};
+
+// Decrypt PHI fields on a queue row (phone, email)
+const decryptRow = (row) => {
+  if (!row) return row;
+  return { ...row, phone: dec(row.phone), email: dec(row.email) };
+};
 
 const now = () => new Date().toISOString();
 const n   = (v) => (v === '' || v === undefined) ? null : v;
@@ -59,8 +72,8 @@ export const getQueue = async (req, res) => {
     if (status)    { where.push('q.status = ?');        params.push(status);    }
     if (doctor_id) { where.push('q.doctor_id = ?');     params.push(doctor_id); }
     const qDate = date || new Date().toISOString().split('T')[0];
-    where.push("date(q.check_in_time) = ?");
-    params.push(qDate);
+    where.push("(q.queue_date = ? OR date(q.check_in_time) = ?)");
+    params.push(qDate, qDate);
 
     const rows = await getAll(
       `SELECT q.*,
@@ -73,7 +86,7 @@ export const getQueue = async (req, res) => {
        ORDER BY q.priority DESC, q.queue_number ASC`,
       params
     );
-    res.json({ queue: rows, date: qDate });
+    res.json({ queue: rows.map(decryptRow), date: qDate });
   } catch (err) {
     console.error('getQueue error:', err);
     res.status(500).json({ error: err.message });
@@ -86,15 +99,17 @@ export const getQueueStats = async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const stats = await getOne(
       `SELECT
-        COUNT(*)                                                          AS total,
-        SUM(CASE WHEN status = 'Waiting'   THEN 1 ELSE 0 END)           AS waiting,
-        SUM(CASE WHEN status = 'Called'    THEN 1 ELSE 0 END)           AS called,
-        SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END)         AS in_progress,
-        SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END)           AS completed,
-        SUM(CASE WHEN status = 'No-Show'   THEN 1 ELSE 0 END)           AS no_show,
-        ROUND(AVG(wait_minutes), 1)                                      AS avg_wait_minutes
-       FROM queue WHERE date(check_in_time) = ?`,
-      [today]
+        COUNT(*)                                                               AS total,
+        SUM(CASE WHEN status = 'Waiting'          THEN 1 ELSE 0 END)         AS waiting,
+        SUM(CASE WHEN status = 'Called'           THEN 1 ELSE 0 END)         AS called,
+        SUM(CASE WHEN status = 'In Consultation'  THEN 1 ELSE 0 END)         AS in_consultation,
+        SUM(CASE WHEN status = 'Completed'        THEN 1 ELSE 0 END)         AS completed,
+        SUM(CASE WHEN status = 'No-Show'          THEN 1 ELSE 0 END)         AS no_show,
+        SUM(CASE WHEN priority = 'Emergency'      THEN 1 ELSE 0 END)         AS emergencies,
+        ROUND(AVG(wait_minutes), 1)                                           AS avg_wait_minutes
+       FROM queue
+       WHERE (queue_date = ? OR date(check_in_time) = ?)`,
+      [today, today]
     );
     res.json(stats || {});
   } catch (err) {
@@ -113,18 +128,18 @@ export const addToQueue = async (req, res) => {
     // Auto-increment queue number for today
     const today = new Date().toISOString().split('T')[0];
     const lastNum = await getOne(
-      `SELECT MAX(queue_number) AS max_num FROM queue WHERE date(check_in_time) = ?`,
-      [today]
+      `SELECT MAX(queue_number) AS max_num FROM queue WHERE (queue_date = ? OR date(check_in_time) = ?)`,
+      [today, today]
     );
     const queueNumber = (lastNum?.max_num || 0) + 1;
 
     const result = await query(
       `INSERT INTO queue (
-        patient_id, doctor_id, queue_number, priority,
+        patient_id, doctor_id, queue_number, queue_date, priority,
         reason_for_visit, notes, status, check_in_time, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, 'Waiting', CURRENT_TIMESTAMP, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Waiting', CURRENT_TIMESTAMP, ?)`,
       [
-        patient_id, n(doctor_id), queueNumber, priority,
+        patient_id, n(doctor_id), queueNumber, today, priority,
         n(reason_for_visit), n(notes), req.user.user_id,
       ]
     );
@@ -292,7 +307,7 @@ export const getNextPatient = async (req, res) => {
        LIMIT 1`,
       params
     );
-    res.json({ next_patient: next || null });
+    res.json({ next_patient: next ? decryptRow(next) : null });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
